@@ -5,8 +5,8 @@
  */
 
 // Global Configuration
-// If you create a free Firebase Database, paste its URL here to auto-connect on ALL devices:
-const DEFAULT_FIREBASE_DB_URL = ""; 
+// Connected to your Google Firebase Realtime Database for 24/7 cross-device live sync:
+const DEFAULT_FIREBASE_DB_URL = "https://fine-collector-default-rtdb.firebaseio.com"; 
 
 // Application State
 const STATE = {
@@ -137,18 +137,19 @@ function loadFromLocalStorage() {
   const localData = localStorage.getItem('fc_students');
   if (localData) {
     try {
-      STATE.students = JSON.parse(localData);
-      if (!Array.isArray(STATE.students)) STATE.students = [];
+      let parsed = JSON.parse(localData);
+      if (Array.isArray(parsed)) {
+        // Automatically clean any legacy sample records
+        STATE.students = parsed.filter(s => s && s.id !== 'st_1' && s.id !== 'st_2' && s.name !== 'Ali Ahmed' && s.name !== 'Bilal Khan');
+      } else {
+        STATE.students = [];
+      }
     } catch (e) {
       STATE.students = [];
     }
   } else {
-    // Initial sample data if completely fresh
-    const today = getLocalDateString();
-    STATE.students = [
-      { id: 'st_1', name: 'Ali Ahmed', date: today, time: '8:04 AM', fine: 100, paid: true, createdAt: Date.now() - 3600000 },
-      { id: 'st_2', name: 'Bilal Khan', date: today, time: '8:07 AM', fine: 100, paid: false, createdAt: Date.now() - 3000000 }
-    ];
+    // Start completely clean with zero dummy records
+    STATE.students = [];
     saveToLocalStorage();
   }
   renderAll();
@@ -502,6 +503,17 @@ function deleteEntry(studentId) {
     saveState();
     renderAll();
     showToast(`${student.name} record deleted`, 'info');
+  }
+}
+
+function clearAllRecords() {
+  if (!STATE.isAdmin) return;
+
+  if (confirm("Are you sure you want to clear all late records? This action cannot be undone.")) {
+    STATE.students = [];
+    saveState();
+    renderAll();
+    showToast("All records cleared", "info");
   }
 }
 
