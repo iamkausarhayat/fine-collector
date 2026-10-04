@@ -113,7 +113,8 @@ function initCloudOrLocalStorage() {
       STATE.firebaseDb.ref('students').on('value', (snapshot) => {
         const val = snapshot.val();
         if (val) {
-          STATE.students = Array.isArray(val) ? val : Object.keys(val).map(key => ({ ...val[key], id: val[key].id || key }));
+          const list = Array.isArray(val) ? val : Object.keys(val).map(key => val[key]);
+          STATE.students = list.filter(item => item && typeof item === 'object');
         } else {
           STATE.students = [];
         }
@@ -156,8 +157,9 @@ function loadFromLocalStorage() {
 }
 
 function saveState() {
+  const cleanList = (STATE.students || []).filter(Boolean);
   if (STATE.isCloudConnected && STATE.firebaseDb) {
-    STATE.firebaseDb.ref('students').set(STATE.students)
+    STATE.firebaseDb.ref('students').set(cleanList)
       .catch((err) => {
         console.error('Failed to sync to cloud:', err);
         showToast('Cloud sync error, saved locally', 'error');
@@ -170,7 +172,8 @@ function saveState() {
 
 function saveToLocalStorage() {
   try {
-    localStorage.setItem('fc_students', JSON.stringify(STATE.students));
+    const cleanList = (STATE.students || []).filter(Boolean);
+    localStorage.setItem('fc_students', JSON.stringify(cleanList));
   } catch (e) {
     console.error('LocalStorage write error:', e);
   }
@@ -744,11 +747,24 @@ function handleModalOverlayClick(e, modalId) {
 function formatDateDisplay(isoDate) {
   if (!isoDate) return '-';
   try {
+    const str = String(isoDate).trim();
+    const parts = str.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+    }
     const d = new Date(isoDate);
-    if (isNaN(d.getTime())) return isoDate;
-    return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    return str;
   } catch (e) {
-    return isoDate;
+    return String(isoDate);
   }
 }
 

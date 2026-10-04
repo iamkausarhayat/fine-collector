@@ -1158,6 +1158,12 @@ body {
   }
 
   /* Mobile table optimizations */
+  .table-responsive {
+    -webkit-overflow-scrolling: touch;
+  }
+  input, select, textarea {
+    font-size: 16px !important;
+  }
   .students-table th, 
   .students-table td {
     padding: 0.75rem 0.65rem;
