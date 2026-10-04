@@ -1,17 +1,21 @@
 /**
  * Fine Collector - Class 8:00 AM Late Tracker
- * Client Application Logic
- * Supports: LocalStorage fallback + Google Firebase Realtime Database for 24/7 Cloud sync
+ * Robust, production-grade logic designed for multi-year reliable operation.
+ * Supports: LocalStorage fallback + Google Firebase Realtime Database for 24/7 cross-device live sync.
  */
+
+// Global Configuration
+// If you create a free Firebase Database, paste its URL here to auto-connect on ALL devices:
+const DEFAULT_FIREBASE_DB_URL = ""; 
 
 // Application State
 const STATE = {
   students: [],
   isAdmin: false,
-  adminPin: '9922', // Secret Master Admin PIN
+  adminPin: '9922', // Default Master PIN
   currentFilter: {
     search: '',
-    date: 'today',
+    date: 'all',    // Default to 'all' so records are never hidden accidentally
     status: 'all'
   },
   firebaseApp: null,
@@ -19,7 +23,7 @@ const STATE = {
   isCloudConnected: false
 };
 
-// Initialize app when DOM is ready
+// Initialize app when DOM is fully loaded
 document.addEventListener('DOMContentLoaded', () => {
   loadAdminState();
   initDateInput();
@@ -27,13 +31,46 @@ document.addEventListener('DOMContentLoaded', () => {
   renderAll();
 });
 
-/* ==================== INITIALIZATION ==================== */
+/* ==================== DATE UTILITIES ==================== */
+
+/**
+ * Returns local date in YYYY-MM-DD format (avoids UTC timezone offset bugs).
+ */
+function getLocalDateString(d = new Date()) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Checks if two date representations point to the same calendar day.
+ */
+function isSameDay(dateStr1, dateStr2) {
+  if (!dateStr1 || !dateStr2) return false;
+  if (dateStr1 === dateStr2) return true;
+  
+  try {
+    const d1 = new Date(dateStr1);
+    const d2 = new Date(dateStr2);
+    if (isNaN(d1.getTime()) || isNaN(d2.getTime())) {
+      return dateStr1 === dateStr2;
+    }
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+  } catch (e) {
+    return dateStr1 === dateStr2;
+  }
+}
 
 function initDateInput() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const entryDate = document.getElementById('entryDate');
   if (entryDate) entryDate.value = today;
 }
+
+/* ==================== ADMIN STATE ==================== */
 
 function loadAdminState() {
   const savedPin = localStorage.getItem('fc_admin_pin');
@@ -41,7 +78,6 @@ function loadAdminState() {
     STATE.adminPin = savedPin;
   }
 
-  // Check if admin session is preserved
   const sessionAdmin = sessionStorage.getItem('fc_is_admin');
   if (sessionAdmin === 'true') {
     STATE.isAdmin = true;
@@ -49,10 +85,10 @@ function loadAdminState() {
   }
 }
 
-/* ==================== STORAGE & CLOUD DATABASE ==================== */
+/* ==================== STORAGE & REALTIME CLOUD ==================== */
 
 function initCloudOrLocalStorage() {
-  const savedFirebaseUrl = localStorage.getItem('fc_firebase_url');
+  const savedFirebaseUrl = localStorage.getItem('fc_firebase_url') || DEFAULT_FIREBASE_DB_URL;
   const savedConfigJson = localStorage.getItem('fc_firebase_config');
 
   if (savedFirebaseUrl && window.firebase) {
@@ -65,7 +101,6 @@ function initCloudOrLocalStorage() {
       if (!config.projectId) config.projectId = "fine-collector-app";
       if (!config.apiKey) config.apiKey = "dummy-api-key";
 
-      // Initialize Firebase
       if (!firebase.apps.length) {
         STATE.firebaseApp = firebase.initializeApp(config);
       } else {
@@ -74,7 +109,7 @@ function initCloudOrLocalStorage() {
       STATE.firebaseDb = firebase.database();
       STATE.isCloudConnected = true;
 
-      // Realtime listener: triggers whenever data changes in cloud
+      // Realtime listener for cross-device synchronization
       STATE.firebaseDb.ref('students').on('value', (snapshot) => {
         const val = snapshot.val();
         if (val) {
@@ -84,7 +119,7 @@ function initCloudOrLocalStorage() {
         }
         renderAll();
       }, (error) => {
-        console.warn('Firebase sync error, fallback to local:', error);
+        console.warn('Cloud sync error, falling back to local:', error);
         loadFromLocalStorage();
       });
 
@@ -94,7 +129,6 @@ function initCloudOrLocalStorage() {
     }
   }
 
-  // Default: Local Storage fallback
   loadFromLocalStorage();
 }
 
@@ -104,16 +138,16 @@ function loadFromLocalStorage() {
   if (localData) {
     try {
       STATE.students = JSON.parse(localData);
+      if (!Array.isArray(STATE.students)) STATE.students = [];
     } catch (e) {
       STATE.students = [];
     }
   } else {
-    // Initial sample data for preview
-    const today = new Date().toISOString().split('T')[0];
+    // Initial sample data if completely fresh
+    const today = getLocalDateString();
     STATE.students = [
-      { id: '1', name: 'Ali Ahmed', date: today, time: '8:04 AM', fine: 100, paid: true, createdAt: Date.now() - 3600000 },
-      { id: '2', name: 'Bilal Khan', date: today, time: '8:07 AM', fine: 100, paid: false, createdAt: Date.now() - 3000000 },
-      { id: '3', name: 'Hamza Tariq', date: today, time: '8:10+ AM', fine: 100, paid: false, createdAt: Date.now() - 1200000 }
+      { id: 'st_1', name: 'Ali Ahmed', date: today, time: '8:04 AM', fine: 100, paid: true, createdAt: Date.now() - 3600000 },
+      { id: 'st_2', name: 'Bilal Khan', date: today, time: '8:07 AM', fine: 100, paid: false, createdAt: Date.now() - 3000000 }
     ];
     saveToLocalStorage();
   }
@@ -122,11 +156,10 @@ function loadFromLocalStorage() {
 
 function saveState() {
   if (STATE.isCloudConnected && STATE.firebaseDb) {
-    // Save to Firebase Realtime Database
     STATE.firebaseDb.ref('students').set(STATE.students)
       .catch((err) => {
         console.error('Failed to sync to cloud:', err);
-        showToast('Cloud sync failed, saved locally', 'error');
+        showToast('Cloud sync error, saved locally', 'error');
         saveToLocalStorage();
       });
   } else {
@@ -135,7 +168,11 @@ function saveState() {
 }
 
 function saveToLocalStorage() {
-  localStorage.setItem('fc_students', JSON.stringify(STATE.students));
+  try {
+    localStorage.setItem('fc_students', JSON.stringify(STATE.students));
+  } catch (e) {
+    console.error('LocalStorage write error:', e);
+  }
 }
 
 /* ==================== RENDERING LOGIC ==================== */
@@ -151,7 +188,7 @@ function renderStats() {
   let paidCount = 0;
   let pendingCount = 0;
 
-  const today = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   let todayCount = 0;
 
   STATE.students.forEach(student => {
@@ -164,7 +201,7 @@ function renderStats() {
       pendingCount++;
     }
 
-    if (student.date === today) {
+    if (isSameDay(student.date, todayStr)) {
       todayCount++;
     }
   });
@@ -185,19 +222,19 @@ function renderStats() {
 }
 
 function getFilteredStudents() {
-  const today = new Date().toISOString().split('T')[0];
-  const query = STATE.currentFilter.search.toLowerCase().trim();
+  const todayStr = getLocalDateString();
+  const query = (STATE.currentFilter.search || '').toLowerCase().trim();
   const dateFilter = STATE.currentFilter.date;
   const statusFilter = STATE.currentFilter.status;
 
   return STATE.students.filter(student => {
-    // Search query match
+    // Name search filter
     if (query && !student.name.toLowerCase().includes(query)) {
       return false;
     }
 
     // Date filter
-    if (dateFilter === 'today' && student.date !== today) {
+    if (dateFilter === 'today' && !isSameDay(student.date, todayStr)) {
       return false;
     }
 
@@ -219,7 +256,9 @@ function renderTable() {
   const filteredCountBadge = document.getElementById('filteredCountBadge');
   const adminCols = document.querySelectorAll('.admin-col');
 
-  // Toggle admin column visibility in table header
+  if (!tbody) return;
+
+  // Toggle admin column visibility
   adminCols.forEach(col => {
     col.style.display = STATE.isAdmin ? 'table-cell' : 'none';
   });
@@ -231,15 +270,15 @@ function renderTable() {
 
   tbody.innerHTML = '';
 
+  const tbl = document.getElementById('studentsTable');
+
   if (list.length === 0) {
     if (emptyState) emptyState.style.display = 'block';
-    const tbl = document.getElementById('studentsTable');
     if (tbl) tbl.style.display = 'none';
     return;
   }
 
   if (emptyState) emptyState.style.display = 'none';
-  const tbl = document.getElementById('studentsTable');
   if (tbl) tbl.style.display = 'table';
 
   list.forEach((student, index) => {
@@ -247,15 +286,17 @@ function renderTable() {
     tr.id = `row-${student.id}`;
 
     // Student initials for avatar
-    const initials = student.name
+    const initials = (student.name || 'ST')
       .split(' ')
       .map(part => part[0])
+      .filter(Boolean)
       .join('')
       .substring(0, 2)
       .toUpperCase();
 
     // Check if time is 8:10+
-    const isOverTen = student.time.includes('8:10+') || student.time.includes('10+');
+    const timeStr = String(student.time || '');
+    const isOverTen = timeStr.includes('8:10+') || timeStr.includes('10+');
     const timeBadgeClass = isOverTen ? 'badge-time badge-time-late' : 'badge-time';
 
     // Status display: If admin, interactive tick button. If student, clean badge.
@@ -264,7 +305,7 @@ function renderTable() {
       statusHtml = `
         <button class="btn-toggle-payment ${student.paid ? 'is-paid' : 'is-unpaid'}" 
                 onclick="togglePayment('${student.id}')"
-                title="Click to toggle Paid/Unpaid">
+                title="Click to toggle payment status">
           <i class="fa-solid ${student.paid ? 'fa-circle-check' : 'fa-circle-xmark'}"></i>
           <span>${student.paid ? 'Paid (Rs. ' + student.fine + ')' : 'Pending'}</span>
         </button>
@@ -356,7 +397,7 @@ function setPresetTime(type) {
     const minutes = now.getMinutes();
     const ampm = hours >= 12 ? 'PM' : 'AM';
     
-    // Check if past 8:10 AM
+    // Check if class 8:00 AM late is past 8:10 AM
     if (hours === 8 && minutes > 10) {
       timeInput.value = '8:10+ AM';
       return;
@@ -387,18 +428,18 @@ function handleNewEntry(e) {
   const paidCheckbox = document.getElementById('initialPaid');
 
   const name = nameInput.value.trim();
-  const date = dateInput.value;
+  const date = dateInput.value || getLocalDateString();
   const time = timeInput.value.trim();
   const fine = parseInt(fineInput.value) || 100;
   const paid = paidCheckbox.checked;
 
-  if (!name || !date || !time) {
-    showToast('Please fill all fields', 'error');
+  if (!name || !time) {
+    showToast('Please fill student name and arrival time', 'error');
     return;
   }
 
   const newStudent = {
-    id: 'st_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+    id: 'st_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
     name: name,
     date: date,
     time: time,
@@ -407,15 +448,28 @@ function handleNewEntry(e) {
     createdAt: Date.now()
   };
 
+  // Add to the top of list
   STATE.students.unshift(newStudent);
   saveState();
+
+  // Reset filter to 'all' so new entry is immediately visible
+  STATE.currentFilter.date = 'all';
+  const filterDateElem = document.getElementById('filterDate');
+  if (filterDateElem) filterDateElem.value = 'all';
+
+  // Clear search if active
+  const searchInput = document.getElementById('searchStudent');
+  if (searchInput) searchInput.value = '';
+  STATE.currentFilter.search = '';
+
   renderAll();
 
+  // Reset name input and focus ready for next student
   nameInput.value = '';
   paidCheckbox.checked = false;
   nameInput.focus();
 
-  showToast(`Added ${name} to record`, 'success');
+  showToast(`Added ${name} to late records`, 'success');
 }
 
 function togglePayment(studentId) {
@@ -621,7 +675,7 @@ function handleChangePin() {
 /* ==================== CLOUD DATABASE SETUP MODAL ==================== */
 
 function openCloudModal() {
-  const savedFirebaseUrl = localStorage.getItem('fc_firebase_url') || '';
+  const savedFirebaseUrl = localStorage.getItem('fc_firebase_url') || DEFAULT_FIREBASE_DB_URL;
   const savedConfigJson = localStorage.getItem('fc_firebase_config') || '';
   document.getElementById('firebaseDbUrlInput').value = savedFirebaseUrl;
   document.getElementById('firebaseConfigJson').value = savedConfigJson;
@@ -677,15 +731,18 @@ function handleModalOverlayClick(e, modalId) {
 
 function formatDateDisplay(isoDate) {
   if (!isoDate) return '-';
-  const parts = isoDate.split('-');
-  if (parts.length !== 3) return isoDate;
-  const d = new Date(isoDate);
-  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  try {
+    const d = new Date(isoDate);
+    if (isNaN(d.getTime())) return isoDate;
+    return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch (e) {
+    return isoDate;
+  }
 }
 
 function escapeHtml(text) {
   if (!text) return '';
-  return text
+  return String(text)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
