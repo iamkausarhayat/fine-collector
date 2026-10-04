@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fine Collector - Class 8:00 AM Late Tracker</title>
+  <meta name="description" content="Class 8:00 AM late arrival fine tracking system. Real-time status for students and admin control.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Firebase SDKs for 24/7 Cloud Sync -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Background decorative glows -->
+  <div class="bg-glow glow-1"></div>
+  <div class="bg-glow glow-2"></div>
+
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="main-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <i class="fa-solid fa-wallet"></i>
+        </div>
+        <div>
+          <h1 class="brand-title">Fine Collector</h1>
+          <p class="brand-subtitle"><i class="fa-regular fa-clock"></i> 8:00 AM Class Late Tracker</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Admin Login / Mode Toggle -->
+        <button class="btn btn-admin" id="adminToggleBtn" onclick="toggleAdminModal()">
+          <i class="fa-solid fa-shield-halved"></i>
+          <span id="adminBtnText">Admin Login</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Admin Status Banner (Shown only when admin is logged in) -->
+    <div class="admin-banner" id="adminBanner" style="display: none;">
+      <div class="admin-banner-content">
+        <i class="fa-solid fa-user-check"></i>
+        <span><strong>Admin Mode Active:</strong> You can add late entries, update payment status, and edit records.</span>
+      </div>
+      <div class="admin-banner-actions">
+        <button class="btn-sm" onclick="openCloudModal()" title="Cloud Database Setup">
+          <i class="fa-solid fa-cloud"></i> Cloud DB
+        </button>
+        <button class="btn-sm" onclick="openPinModal()" title="Change Admin PIN">
+          <i class="fa-solid fa-key"></i> Change PIN
+        </button>
+        <button class="btn-sm btn-logout" onclick="logoutAdmin()">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick Stats Cards (Shown to Everyone: Total Collected, Pending, Late Count) -->
+    <section class="stats-grid">
+      <!-- Total Collected -->
+      <div class="stat-card card-collected">
+        <div class="stat-icon-wrapper">
+          <i class="fa-solid fa-circle-check"></i>
+        </div>
+        <div class="stat-details">
+          <span class="stat-label">Total Collected</span>
+          <h3 class="stat-value" id="statCollected">Rs. 0</h3>
+          <span class="stat-sub" id="statCollectedCount">0 paid</span>
+        </div>
+      </div>
+
+      <!-- Total Pending -->
+      <div class="stat-card card-pending">
+        <div class="stat-icon-wrapper">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+        </div>
+        <div class="stat-details">
+          <span class="stat-label">Pending Fine</span>
+          <h3 class="stat-value" id="statPending">Rs. 0</h3>
+          <span class="stat-sub" id="statPendingCount">0 pending</span>
+        </div>
+      </div>
+
+      <!-- Total Late Students -->
+      <div class="stat-card card-total">
+        <div class="stat-icon-wrapper">
+          <i class="fa-solid fa-user-group"></i>
+        </div>
+        <div class="stat-details">
+          <span class="stat-label">Late Students</span>
+          <h3 class="stat-value" id="statTotalStudents">0</h3>
+          <span class="stat-sub" id="statTodayStudents">0 today</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Admin Quick Entry Box (Visible only when logged in as Admin) -->
+    <section class="admin-entry-card" id="adminEntryCard" style="display: none;">
+      <div class="entry-header">
+        <h2><i class="fa-solid fa-user-plus"></i> Add Late Student Entry</h2>
+        <span class="fine-tag"><i class="fa-solid fa-tag"></i> Default Fine: Rs. 100</span>
+      </div>
+
+      <form id="lateEntryForm" onsubmit="handleNewEntry(event)">
+        <div class="form-grid">
+          
+          <!-- Student Name -->
+          <div class="form-group name-group">
+            <label for="studentName"><i class="fa-solid fa-signature"></i> Student Name</label>
+            <input 
+              type="text" 
+              id="studentName" 
+              placeholder="Enter student name..." 
+              required 
+              autocomplete="off"
+            >
+          </div>
+
+          <!-- Date -->
+          <div class="form-group date-group">
+            <label for="entryDate"><i class="fa-solid fa-calendar-days"></i> Date</label>
+            <input type="date" id="entryDate" required>
+          </div>
+
+          <!-- Arrival Time with Quick Presets -->
+          <div class="form-group time-group">
+            <label for="arrivalTime"><i class="fa-solid fa-clock"></i> Arrival Time</label>
+            <div class="time-input-wrap">
+              <input type="text" id="arrivalTime" placeholder="e.g. 8:04 AM or 8:10+" required>
+              <div class="time-presets">
+                <button type="button" class="btn-preset" onclick="setPresetTime('now')" title="Current Time">
+                  <i class="fa-solid fa-bullseye"></i> Now
+                </button>
+                <button type="button" class="btn-preset btn-preset-late" onclick="setPresetTime('8:10+')" title="Late after 10 mins">
+                  8:10+ AM
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fine Amount -->
+          <div class="form-group fine-group">
+            <label for="fineAmount"><i class="fa-solid fa-coins"></i> Fine (Rs)</label>
+            <input type="number" id="fineAmount" value="100" min="0" step="50" required>
+          </div>
+
+          <!-- Initial Payment Status Checkbox -->
+          <div class="form-group checkbox-group">
+            <label class="custom-checkbox-container">
+              <input type="checkbox" id="initialPaid">
+              <span class="checkmark"></span>
+              <span class="checkbox-label">Mark as Paid (Rs. 100 received on spot)</span>
+            </label>
+          </div>
+
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="btnSubmitEntry">
+            <i class="fa-solid fa-plus"></i> Save Late Entry
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Filter & Search Controls -->
+    <section class="controls-panel">
+      <!-- Search input -->
+      <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input 
+          type="text" 
+          id="searchStudent" 
+          placeholder="Search by student name..." 
+          oninput="applyFilters()"
+        >
+        <button class="clear-search" id="clearSearchBtn" onclick="clearSearch()" style="display: none;">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Filters Row -->
+      <div class="filter-group">
+        <!-- Date Filter -->
+        <select id="filterDate" onchange="applyFilters()">
+          <option value="today">Today's List</option>
+          <option value="all">All Dates History</option>
+        </select>
+
+        <!-- Status Filter -->
+        <select id="filterStatus" onchange="applyFilters()">
+          <option value="all">All Statuses</option>
+          <option value="unpaid">Pending Only</option>
+          <option value="paid">Paid Only</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Late Students List Section -->
+    <main class="students-section">
+      <div class="section-header">
+        <h2 id="tableTitle"><i class="fa-solid fa-list-check"></i> Late Students Record</h2>
+        <span class="count-badge" id="filteredCountBadge">Showing 0 records</span>
+      </div>
+
+      <!-- Table View -->
+      <div class="table-responsive">
+        <table class="students-table" id="studentsTable">
+          <thead>
+            <tr>
+              <th style="width: 50px;">#</th>
+              <th>Student Name</th>
+              <th>Date</th>
+              <th>Arrival Time</th>
+              <th>Fine</th>
+              <th>Payment Status</th>
+              <th class="admin-col" style="display: none; width: 120px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="studentsTableBody">
+            <!-- Dynamic Rows will appear here -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Empty State -->
+      <div class="empty-state" id="emptyState" style="display: none;">
+        <div class="empty-icon"><i class="fa-solid fa-user-check"></i></div>
+        <h3>No Late Records Found</h3>
+        <p id="emptyStateMsg">No late records for the selected criteria.</p>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Fine Collector &bull; 8:00 AM Punctuality System</p>
+      <p class="footer-note">Students: Read-only access &bull; Admins: Authorized management</p>
+    </footer>
+
+  </div>
+
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- Minimal Admin Login Modal (JUST the PIN box & Submit button) -->
+  <div class="modal-overlay" id="adminModal" onclick="handleModalOverlayClick(event, 'adminModal')">
+    <div class="modal-box modal-sm">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-lock"></i> Admin Access</h3>
+        <button class="modal-close" onclick="closeAdminModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="pin-input-wrap">
+          <input 
+            type="password" 
+            id="adminPinInput" 
+            maxlength="12" 
+            placeholder="Enter Admin PIN" 
+            autocomplete="off"
+            onkeypress="if(event.key === 'Enter') handleAdminLogin()"
+          >
+          <button type="button" class="btn-eye" onclick="togglePinVisibility('adminPinInput')">
+            <i class="fa-solid fa-eye" id="adminPinEyeIcon"></i>
+          </button>
+        </div>
+        <div id="loginErrorMsg" class="error-msg" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeAdminModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="handleAdminLogin()">
+          <i class="fa-solid fa-arrow-right-to-bracket"></i> Login
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change PIN Modal -->
+  <div class="modal-overlay" id="pinModal" onclick="handleModalOverlayClick(event, 'pinModal')">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-key"></i> Change Admin Secret PIN</h3>
+        <button class="modal-close" onclick="closePinModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group mb-3">
+          <label>Current Master PIN</label>
+          <input type="password" id="currentPinInput" placeholder="Enter current PIN">
+        </div>
+        <div class="form-group mb-3">
+          <label>New Secret PIN</label>
+          <input type="password" id="newPinInput" placeholder="Enter new secret PIN">
+        </div>
+        <div class="form-group">
+          <label>Confirm New PIN</label>
+          <input type="password" id="confirmNewPinInput" placeholder="Confirm new secret PIN">
+        </div>
+        <div id="pinErrorMsg" class="error-msg" style="display: none;"></div>
+        <div id="pinSuccessMsg" class="success-msg" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closePinModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="handleChangePin()">Save PIN</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cloud Database Setup Modal (Firebase 24/7 Setup) -->
+  <div class="modal-overlay" id="cloudModal" onclick="handleModalOverlayClick(event, 'cloudModal')">
+    <div class="modal-box modal-lg">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-cloud"></i> Real-Time Cloud Database Setup</h3>
+        <button class="modal-close" onclick="closeCloudModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Connect a free Google Firebase Realtime Database URL to enable 24/7 live sync across all devices, even when your computer is shut down.
+        </p>
+        <div class="form-group mb-3">
+          <label>Firebase Database URL:</label>
+          <input type="text" id="firebaseDbUrlInput" placeholder="https://your-database-id-default-rtdb.firebaseio.com">
+        </div>
+        <div class="form-group mb-3">
+          <label>Firebase Config JSON (Optional):</label>
+          <textarea id="firebaseConfigJson" rows="3" placeholder='{"databaseURL": "https://..."}'></textarea>
+        </div>
+        <div class="cloud-status-current" id="cloudStatusDetails">
+          <strong>Status:</strong> <span id="currentStorageMode">Local Storage</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="disconnectCloud()">Use Local Mode</button>
+        <button class="btn btn-primary" onclick="saveCloudConfig()">
+          <i class="fa-solid fa-floppy-disk"></i> Save & Connect
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Entry Modal -->
+  <div class="modal-overlay" id="editEntryModal" onclick="handleModalOverlayClick(event, 'editEntryModal')">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-pen-to-square"></i> Edit Entry</h3>
+        <button class="modal-close" onclick="closeEditModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editEntryId">
+        <div class="form-group mb-3">
+          <label>Student Name</label>
+          <input type="text" id="editStudentName" required>
+        </div>
+        <div class="form-group mb-3">
+          <label>Date</label>
+          <input type="date" id="editEntryDate" required>
+        </div>
+        <div class="form-group mb-3">
+          <label>Arrival Time</label>
+          <div class="time-input-wrap">
+            <input type="text" id="editArrivalTime" required>
+            <div class="time-presets">
+              <button type="button" class="btn-preset btn-preset-late" onclick="document.getElementById('editArrivalTime').value = '8:10+ AM'">
+                8:10+ AM
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="form-group mb-3">
+          <label>Fine Amount (Rs)</label>
+          <input type="number" id="editFineAmount" required>
+        </div>
+        <div class="form-group">
+          <label class="custom-checkbox-container">
+            <input type="checkbox" id="editPaidStatus">
+            <span class="checkmark"></span>
+            <span class="checkbox-label">Paid (Fine Received)</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEditedEntry()">
+          <i class="fa-solid fa-check"></i> Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- App Script -->
+  <script src="app.js"></script>
+</body>
+</html>
