@@ -135,12 +135,12 @@ function sendSecurityEmail(subject, details = {}) {
     const form = document.getElementById('fc_hidden_email_form');
     if (form) {
       document.getElementById('fc_email_subject').value = `Fine Collector Alert: ${subject}`;
-      document.getElementById('fc_email_name').value = details.Requester_Name || details.User_Name || 'Admin User';
+      document.getElementById('fc_email_name').value = details.Requester_Name || details.Applicant_Name || details.User_Name || 'Admin Requester';
       document.getElementById('fc_email_device').value = details.Device_Info || STATE.deviceName;
       document.getElementById('fc_email_msg').value = details.Question || details.Message || subject;
       const linkEl = document.getElementById('fc_email_link');
       if (linkEl) {
-        linkEl.value = details.CLICK_TO_ALLOW || details.CLICK_TO_ALLOW_MASTER || details.Approval_Link || '';
+        linkEl.value = details.CLICK_TO_ALLOW || details.CLICK_TO_ALLOW_ADMIN || details.CLICK_TO_ALLOW_MASTER || details.Approval_Link || '';
       }
       const denyEl = document.getElementById('fc_email_deny_link');
       if (denyEl) {
@@ -1021,11 +1021,13 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     // Dispatch instant email notification to Master Mind (iamkausarhayat100@gmail.com)
     sendSecurityEmail(`🛡️ Someone wants to become an Admin (${enteredName})`, {
       Request_Type: 'Someone wants to become an Admin',
+      Requester_Name: enteredName,
       Applicant_Name: enteredName,
       Applicant_Role: 'Sub-Admin',
       Device_Info: STATE.deviceName,
       Device_ID: STATE.deviceId,
       Question: `User "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow or deny this person?`,
+      CLICK_TO_ALLOW: approvalLink,
       CLICK_TO_ALLOW_ADMIN: approvalLink,
       CLICK_TO_DENY: denialLink,
       Status: 'Pending Master Mind Permission'
@@ -1110,10 +1112,13 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     sendSecurityEmail('👑 Someone wanna made master', {
       Request_Type: 'Someone wanna made master',
+      Requester_Name: 'Master Admin Applicant',
+      Applicant_Name: 'Master Admin Applicant',
       Applicant_Role: '👑 Master Admin',
       Device_Info: STATE.deviceName,
       Device_ID: STATE.deviceId,
       Question: `Someone entered Master Password 4545 on device (${STATE.deviceName}) and wants to become Master Admin. Do you want to grant Master Admin access or deny?`,
+      CLICK_TO_ALLOW: masterApprovalLink,
       CLICK_TO_ALLOW_MASTER: masterApprovalLink,
       CLICK_TO_DENY: denialLink,
       Status: 'Pending Master Mind Permission'
