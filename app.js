@@ -276,6 +276,8 @@ function initCloudOrLocalStorage() {
           isOwner: true,
           lastSeen: Date.now()
         });
+      }
+
       // Check for one-click approval from Master Owner email
       checkUrlApprovalParams();
 
@@ -291,6 +293,7 @@ function initCloudOrLocalStorage() {
 /**
  * Handles 1-Click approval/rejection from Master Admin Email links
  * e.g. https://iamkausarhayat.github.io/fine-collector/?action=approve&dev=dev_xxx&key=4545
+ * or action=approve_master
  */
 function checkUrlApprovalParams() {
   try {
@@ -299,14 +302,31 @@ function checkUrlApprovalParams() {
     const devId = params.get('dev');
     const key = params.get('key');
 
-    if ((action === 'approve' || action === 'reject') && devId && (key === '4545' || key === STATE.masterKey || key === STATE.adminPin)) {
+    if ((action === 'approve' || action === 'approve_master' || action === 'reject') && devId && (key === '4545' || key === STATE.masterKey || key === STATE.adminPin)) {
       if (STATE.firebaseDb) {
-        const newStatus = action === 'approve' ? 'approved' : 'rejected';
-        STATE.firebaseDb.ref(`security/admin_devices/${devId}`).update({
+        const isMaster = (action === 'approve_master');
+        const newStatus = (action === 'reject') ? 'rejected' : 'approved';
+        const updatePayload = {
           status: newStatus,
-          [action === 'approve' ? 'approvedAt' : 'rejectedAt']: Date.now()
-        }).then(() => {
-          showToast(`Access ${action === 'approve' ? 'APPROVED' : 'REJECTED'} successfully!`, 'success');
+          [action === 'reject' ? 'rejectedAt' : 'approvedAt']: Date.now()
+        };
+        if (isMaster) {
+          updatePayload.role = 'master';
+          updatePayload.isOwner = true;
+          updatePayload.name = 'Kausar Hayat (Master Owner)';
+        }
+        STATE.firebaseDb.ref(`security/admin_devices/${devId}`).update(updatePayload).then(() => {
+          showToast(`Access ${isMaster ? 'MASTER AUTHORIZED' : action.toUpperCase()} successfully!`, 'success');
+          if (devId === STATE.deviceId && isMaster) {
+            localStorage.setItem('fc_is_master_owner', 'true');
+            STATE.isAdmin = true;
+            STATE.isMasterAdmin = true;
+            STATE.adminRole = 'master';
+            sessionStorage.setItem('fc_is_admin', 'true');
+            sessionStorage.setItem('fc_admin_role', 'master');
+            updateAdminUI();
+            renderAll();
+          }
         });
       }
       // Clean query parameters from URL bar without page refresh
@@ -317,180 +337,180 @@ function checkUrlApprovalParams() {
   }
 }
 
-function loadFromLocalStorage() {
-  STATE.isCloudConnected = false;
-  const localData = localStorage.getItem('fc_students');
-  if (localData) {
-    try {
-      let parsed = JSON.parse(localData);
-      if (Array.isArray(parsed)) {
-        // Automatically clean any legacy sample records
-        STATE.students = parsed.filter(s => s && s.id !== 'st_1' && s.id !== 'st_2' && s.name !== 'Ali Ahmed' && s.name !== 'Bilal Khan');
-      } else {
+  function loadFromLocalStorage() {
+    STATE.isCloudConnected = false;
+    const localData = localStorage.getItem('fc_students');
+    if (localData) {
+      try {
+        let parsed = JSON.parse(localData);
+        if (Array.isArray(parsed)) {
+          // Automatically clean any legacy sample records
+          STATE.students = parsed.filter(s => s && s.id !== 'st_1' && s.id !== 'st_2' && s.name !== 'Ali Ahmed' && s.name !== 'Bilal Khan');
+        } else {
+          STATE.students = [];
+        }
+      } catch (e) {
         STATE.students = [];
       }
-    } catch (e) {
-      STATE.students = [];
-    }
-  } else {
-    // Start completely clean with zero dummy records
-    STATE.students = [];
-    saveToLocalStorage();
-  }
-  renderAll();
-}
-
-function saveState() {
-  const cleanList = (STATE.students || []).filter(Boolean);
-  if (STATE.isCloudConnected && STATE.firebaseDb) {
-    STATE.firebaseDb.ref('students').set(cleanList)
-      .catch((err) => {
-        console.error('Failed to sync to cloud:', err);
-        showToast('Cloud sync error, saved locally', 'error');
-        saveToLocalStorage();
-      });
-  } else {
-    saveToLocalStorage();
-  }
-}
-
-function saveToLocalStorage() {
-  try {
-    const cleanList = (STATE.students || []).filter(Boolean);
-    localStorage.setItem('fc_students', JSON.stringify(cleanList));
-  } catch (e) {
-    console.error('LocalStorage write error:', e);
-  }
-}
-
-/* ==================== RENDERING LOGIC ==================== */
-
-function renderAll() {
-  renderStats();
-  renderTable();
-}
-
-function renderStats() {
-  let totalCollected = 0;
-  let totalPending = 0;
-  let paidCount = 0;
-  let pendingCount = 0;
-
-  const todayStr = getLocalDateString();
-  let todayCount = 0;
-
-  STATE.students.forEach(student => {
-    const fine = Number(student.fine) || 100;
-    if (student.paid) {
-      totalCollected += fine;
-      paidCount++;
     } else {
-      totalPending += fine;
-      pendingCount++;
+      // Start completely clean with zero dummy records
+      STATE.students = [];
+      saveToLocalStorage();
     }
-
-    if (isSameDay(student.date, todayStr)) {
-      todayCount++;
-    }
-  });
-
-  const statCol = document.getElementById('statCollected');
-  const statColCount = document.getElementById('statCollectedCount');
-  const statPend = document.getElementById('statPending');
-  const statPendCount = document.getElementById('statPendingCount');
-  const statTotal = document.getElementById('statTotalStudents');
-  const statToday = document.getElementById('statTodayStudents');
-
-  if (statCol) statCol.textContent = `Rs. ${totalCollected.toLocaleString()}`;
-  if (statColCount) statColCount.textContent = `${paidCount} paid`;
-  if (statPend) statPend.textContent = `Rs. ${totalPending.toLocaleString()}`;
-  if (statPendCount) statPendCount.textContent = `${pendingCount} pending`;
-  if (statTotal) statTotal.textContent = STATE.students.length;
-  if (statToday) statToday.textContent = `${todayCount} today`;
-}
-
-function getFilteredStudents() {
-  const todayStr = getLocalDateString();
-  const query = (STATE.currentFilter.search || '').toLowerCase().trim();
-  const dateFilter = STATE.currentFilter.date;
-  const statusFilter = STATE.currentFilter.status;
-
-  return STATE.students.filter(student => {
-    // Name search filter
-    if (query && !student.name.toLowerCase().includes(query)) {
-      return false;
-    }
-
-    // Date filter
-    if (dateFilter === 'today' && !isSameDay(student.date, todayStr)) {
-      return false;
-    }
-
-    // Status filter
-    if (statusFilter === 'paid' && !student.paid) {
-      return false;
-    }
-    if (statusFilter === 'unpaid' && student.paid) {
-      return false;
-    }
-
-    return true;
-  });
-}
-
-function renderTable() {
-  const tbody = document.getElementById('studentsTableBody');
-  const emptyState = document.getElementById('emptyState');
-  const filteredCountBadge = document.getElementById('filteredCountBadge');
-  const adminCols = document.querySelectorAll('.admin-col');
-
-  if (!tbody) return;
-
-  // Toggle admin column visibility
-  adminCols.forEach(col => {
-    col.style.display = STATE.isAdmin ? 'table-cell' : 'none';
-  });
-
-  const list = getFilteredStudents();
-  if (filteredCountBadge) {
-    filteredCountBadge.textContent = `Showing ${list.length} record${list.length === 1 ? '' : 's'}`;
+    renderAll();
   }
 
-  tbody.innerHTML = '';
-
-  const tbl = document.getElementById('studentsTable');
-
-  if (list.length === 0) {
-    if (emptyState) emptyState.style.display = 'block';
-    if (tbl) tbl.style.display = 'none';
-    return;
+  function saveState() {
+    const cleanList = (STATE.students || []).filter(Boolean);
+    if (STATE.isCloudConnected && STATE.firebaseDb) {
+      STATE.firebaseDb.ref('students').set(cleanList)
+        .catch((err) => {
+          console.error('Failed to sync to cloud:', err);
+          showToast('Cloud sync error, saved locally', 'error');
+          saveToLocalStorage();
+        });
+    } else {
+      saveToLocalStorage();
+    }
   }
 
-  if (emptyState) emptyState.style.display = 'none';
-  if (tbl) tbl.style.display = 'table';
+  function saveToLocalStorage() {
+    try {
+      const cleanList = (STATE.students || []).filter(Boolean);
+      localStorage.setItem('fc_students', JSON.stringify(cleanList));
+    } catch (e) {
+      console.error('LocalStorage write error:', e);
+    }
+  }
 
-  list.forEach((student, index) => {
-    const tr = document.createElement('tr');
-    tr.id = `row-${student.id}`;
+  /* ==================== RENDERING LOGIC ==================== */
 
-    // Student initials for avatar
-    const initials = (student.name || 'ST')
-      .split(' ')
-      .map(part => part[0])
-      .filter(Boolean)
-      .join('')
-      .substring(0, 2)
-      .toUpperCase();
+  function renderAll() {
+    renderStats();
+    renderTable();
+  }
 
-    // Check if time is 8:10+
-    const timeStr = String(student.time || '');
-    const isOverTen = timeStr.includes('8:10+') || timeStr.includes('10+');
-    const timeBadgeClass = isOverTen ? 'badge-time badge-time-late' : 'badge-time';
+  function renderStats() {
+    let totalCollected = 0;
+    let totalPending = 0;
+    let paidCount = 0;
+    let pendingCount = 0;
 
-    // Status display: If admin, interactive tick button. If student, clean badge.
-    let statusHtml = '';
-    if (STATE.isAdmin) {
-      statusHtml = `
+    const todayStr = getLocalDateString();
+    let todayCount = 0;
+
+    STATE.students.forEach(student => {
+      const fine = Number(student.fine) || 100;
+      if (student.paid) {
+        totalCollected += fine;
+        paidCount++;
+      } else {
+        totalPending += fine;
+        pendingCount++;
+      }
+
+      if (isSameDay(student.date, todayStr)) {
+        todayCount++;
+      }
+    });
+
+    const statCol = document.getElementById('statCollected');
+    const statColCount = document.getElementById('statCollectedCount');
+    const statPend = document.getElementById('statPending');
+    const statPendCount = document.getElementById('statPendingCount');
+    const statTotal = document.getElementById('statTotalStudents');
+    const statToday = document.getElementById('statTodayStudents');
+
+    if (statCol) statCol.textContent = `Rs. ${totalCollected.toLocaleString()}`;
+    if (statColCount) statColCount.textContent = `${paidCount} paid`;
+    if (statPend) statPend.textContent = `Rs. ${totalPending.toLocaleString()}`;
+    if (statPendCount) statPendCount.textContent = `${pendingCount} pending`;
+    if (statTotal) statTotal.textContent = STATE.students.length;
+    if (statToday) statToday.textContent = `${todayCount} today`;
+  }
+
+  function getFilteredStudents() {
+    const todayStr = getLocalDateString();
+    const query = (STATE.currentFilter.search || '').toLowerCase().trim();
+    const dateFilter = STATE.currentFilter.date;
+    const statusFilter = STATE.currentFilter.status;
+
+    return STATE.students.filter(student => {
+      // Name search filter
+      if (query && !student.name.toLowerCase().includes(query)) {
+        return false;
+      }
+
+      // Date filter
+      if (dateFilter === 'today' && !isSameDay(student.date, todayStr)) {
+        return false;
+      }
+
+      // Status filter
+      if (statusFilter === 'paid' && !student.paid) {
+        return false;
+      }
+      if (statusFilter === 'unpaid' && student.paid) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById('studentsTableBody');
+    const emptyState = document.getElementById('emptyState');
+    const filteredCountBadge = document.getElementById('filteredCountBadge');
+    const adminCols = document.querySelectorAll('.admin-col');
+
+    if (!tbody) return;
+
+    // Toggle admin column visibility
+    adminCols.forEach(col => {
+      col.style.display = STATE.isAdmin ? 'table-cell' : 'none';
+    });
+
+    const list = getFilteredStudents();
+    if (filteredCountBadge) {
+      filteredCountBadge.textContent = `Showing ${list.length} record${list.length === 1 ? '' : 's'}`;
+    }
+
+    tbody.innerHTML = '';
+
+    const tbl = document.getElementById('studentsTable');
+
+    if (list.length === 0) {
+      if (emptyState) emptyState.style.display = 'block';
+      if (tbl) tbl.style.display = 'none';
+      return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (tbl) tbl.style.display = 'table';
+
+    list.forEach((student, index) => {
+      const tr = document.createElement('tr');
+      tr.id = `row-${student.id}`;
+
+      // Student initials for avatar
+      const initials = (student.name || 'ST')
+        .split(' ')
+        .map(part => part[0])
+        .filter(Boolean)
+        .join('')
+        .substring(0, 2)
+        .toUpperCase();
+
+      // Check if time is 8:10+
+      const timeStr = String(student.time || '');
+      const isOverTen = timeStr.includes('8:10+') || timeStr.includes('10+');
+      const timeBadgeClass = isOverTen ? 'badge-time badge-time-late' : 'badge-time';
+
+      // Status display: If admin, interactive tick button. If student, clean badge.
+      let statusHtml = '';
+      if (STATE.isAdmin) {
+        statusHtml = `
         <button class="btn-toggle-payment ${student.paid ? 'is-paid' : 'is-unpaid'}" 
                 onclick="togglePayment('${student.id}')"
                 title="Click to toggle payment status">
@@ -498,17 +518,17 @@ function renderTable() {
           <span>${student.paid ? 'Paid (Rs. ' + student.fine + ')' : 'Pending'}</span>
         </button>
       `;
-    } else {
-      statusHtml = `
+      } else {
+        statusHtml = `
         <span class="status-pill ${student.paid ? 'status-paid' : 'status-unpaid'}">
           <i class="fa-solid ${student.paid ? 'fa-check' : 'fa-clock'}"></i>
           ${student.paid ? 'Paid' : 'Pending'}
         </span>
       `;
-    }
+      }
 
-    // Admin action buttons (Edit & Delete)
-    const adminActionsHtml = STATE.isAdmin ? `
+      // Admin action buttons (Edit & Delete)
+      const adminActionsHtml = STATE.isAdmin ? `
       <td class="admin-col">
         <div class="table-actions">
           <button class="btn-icon" onclick="openEditModal('${student.id}')" title="Edit Entry">
@@ -521,7 +541,7 @@ function renderTable() {
       </td>
     ` : '';
 
-    tr.innerHTML = `
+      tr.innerHTML = `
       <td style="color: var(--text-muted); font-weight: 600;">${index + 1}</td>
       <td>
         <div class="student-name-cell">
@@ -540,623 +560,675 @@ function renderTable() {
       ${adminActionsHtml}
     `;
 
-    tbody.appendChild(tr);
-  });
-}
-
-/* ==================== FILTERS & SEARCH ==================== */
-
-function applyFilters() {
-  const searchInput = document.getElementById('searchStudent');
-  const dateSelect = document.getElementById('filterDate');
-  const statusSelect = document.getElementById('filterStatus');
-  const clearBtn = document.getElementById('clearSearchBtn');
-
-  if (searchInput) STATE.currentFilter.search = searchInput.value;
-  if (dateSelect) STATE.currentFilter.date = dateSelect.value;
-  if (statusSelect) STATE.currentFilter.status = statusSelect.value;
-
-  if (clearBtn && searchInput) {
-    clearBtn.style.display = searchInput.value ? 'block' : 'none';
-  }
-  renderTable();
-}
-
-function clearSearch() {
-  const searchInput = document.getElementById('searchStudent');
-  if (searchInput) searchInput.value = '';
-  applyFilters();
-}
-
-/* ==================== TIME RULE & PRESETS ==================== */
-
-function setPresetTime(type) {
-  const timeInput = document.getElementById('arrivalTime');
-  if (!timeInput) return;
-
-  if (type === '8:10+') {
-    timeInput.value = '8:10+ AM';
-    return;
+      tbody.appendChild(tr);
+    });
   }
 
-  if (type === 'now') {
-    const now = new Date();
-    let hours = now.getHours();
-    const minutes = now.getMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
+  /* ==================== FILTERS & SEARCH ==================== */
 
-    // Check if class 8:00 AM late is past 8:10 AM
-    if (hours === 8 && minutes > 10) {
-      timeInput.value = '8:10+ AM';
-      return;
-    } else if (hours > 8 && hours < 12) {
+  function applyFilters() {
+    const searchInput = document.getElementById('searchStudent');
+    const dateSelect = document.getElementById('filterDate');
+    const statusSelect = document.getElementById('filterStatus');
+    const clearBtn = document.getElementById('clearSearchBtn');
+
+    if (searchInput) STATE.currentFilter.search = searchInput.value;
+    if (dateSelect) STATE.currentFilter.date = dateSelect.value;
+    if (statusSelect) STATE.currentFilter.status = statusSelect.value;
+
+    if (clearBtn && searchInput) {
+      clearBtn.style.display = searchInput.value ? 'block' : 'none';
+    }
+    renderTable();
+  }
+
+  function clearSearch() {
+    const searchInput = document.getElementById('searchStudent');
+    if (searchInput) searchInput.value = '';
+    applyFilters();
+  }
+
+  /* ==================== TIME RULE & PRESETS ==================== */
+
+  function setPresetTime(type) {
+    const timeInput = document.getElementById('arrivalTime');
+    if (!timeInput) return;
+
+    if (type === '8:10+') {
       timeInput.value = '8:10+ AM';
       return;
     }
 
-    const displayHours = hours % 12 || 12;
-    const displayMinutes = minutes < 10 ? '0' + minutes : minutes;
-    timeInput.value = `${displayHours}:${displayMinutes} ${ampm}`;
-  }
-}
+    if (type === 'now') {
+      const now = new Date();
+      let hours = now.getHours();
+      const minutes = now.getMinutes();
+      const ampm = hours >= 12 ? 'PM' : 'AM';
 
-/* ==================== ADMIN ACTIONS (ADD / TICK / EDIT / DELETE) ==================== */
+      // Check if class 8:00 AM late is past 8:10 AM
+      if (hours === 8 && minutes > 10) {
+        timeInput.value = '8:10+ AM';
+        return;
+      } else if (hours > 8 && hours < 12) {
+        timeInput.value = '8:10+ AM';
+        return;
+      }
 
-function handleNewEntry(e) {
-  e.preventDefault();
-  if (!STATE.isAdmin) {
-    showToast('Admin permission required', 'error');
-    return;
-  }
-
-  const nameInput = document.getElementById('studentName');
-  const dateInput = document.getElementById('entryDate');
-  const timeInput = document.getElementById('arrivalTime');
-  const fineInput = document.getElementById('fineAmount');
-  const paidCheckbox = document.getElementById('initialPaid');
-
-  const name = nameInput.value.trim();
-  const date = dateInput.value || getLocalDateString();
-  const time = timeInput.value.trim();
-  const fine = parseInt(fineInput.value) || 100;
-  const paid = paidCheckbox.checked;
-
-  if (!name || !time) {
-    showToast('Please fill student name and arrival time', 'error');
-    return;
-  }
-
-  const newStudent = {
-    id: 'st_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
-    name: name,
-    date: date,
-    time: time,
-    fine: fine,
-    paid: paid,
-    createdAt: Date.now()
-  };
-
-  // Add to the top of list
-  STATE.students.unshift(newStudent);
-  saveState();
-
-  // Reset filter to 'all' so new entry is immediately visible
-  STATE.currentFilter.date = 'all';
-  const filterDateElem = document.getElementById('filterDate');
-  if (filterDateElem) filterDateElem.value = 'all';
-
-  // Clear search if active
-  const searchInput = document.getElementById('searchStudent');
-  if (searchInput) searchInput.value = '';
-  STATE.currentFilter.search = '';
-
-  renderAll();
-
-  // Reset name input and focus ready for next student
-  nameInput.value = '';
-  paidCheckbox.checked = false;
-  nameInput.focus();
-
-  showToast(`Added ${name} to late records`, 'success');
-}
-
-function togglePayment(studentId) {
-  if (!STATE.isAdmin) {
-    showToast('Admin authorization required', 'error');
-    return;
-  }
-
-  const student = STATE.students.find(s => s.id === studentId);
-  if (!student) return;
-
-  student.paid = !student.paid;
-  saveState();
-  renderAll();
-
-  const msg = student.paid
-    ? `Marked ${student.name} as Paid (Rs. ${student.fine})`
-    : `Marked ${student.name} as Pending`;
-  showToast(msg, 'success');
-}
-
-function deleteEntry(studentId) {
-  if (!STATE.isAdmin) return;
-
-  const student = STATE.students.find(s => s.id === studentId);
-  if (!student) return;
-
-  if (confirm(`Are you sure you want to delete the record for ${student.name}?`)) {
-    STATE.students = STATE.students.filter(s => s.id !== studentId);
-    saveState();
-    renderAll();
-    showToast(`${student.name} record deleted`, 'info');
-  }
-}
-
-function clearAllRecords() {
-  if (!STATE.isAdmin) return;
-
-  if (!STATE.isMasterAdmin) {
-    showToast('Permission Denied: Only Master Admin (iamkausarhayat100@gmail.com) can clear records', 'error');
-    return;
-  }
-
-  if (confirm("Are you sure you want to clear all late records? This action cannot be undone.")) {
-    STATE.students = [];
-    saveState();
-    renderAll();
-    showToast("All records cleared", "info");
-  }
-}
-
-function openEditModal(studentId) {
-  if (!STATE.isAdmin) return;
-
-  const student = STATE.students.find(s => s.id === studentId);
-  if (!student) return;
-
-  document.getElementById('editEntryId').value = student.id;
-  document.getElementById('editStudentName').value = student.name;
-  document.getElementById('editEntryDate').value = student.date;
-  document.getElementById('editArrivalTime').value = student.time;
-  document.getElementById('editFineAmount').value = student.fine;
-  document.getElementById('editPaidStatus').checked = student.paid;
-
-  document.getElementById('editEntryModal').style.display = 'flex';
-}
-
-function closeEditModal() {
-  document.getElementById('editEntryModal').style.display = 'none';
-}
-
-function saveEditedEntry() {
-  const id = document.getElementById('editEntryId').value;
-  const student = STATE.students.find(s => s.id === id);
-  if (!student) return;
-
-  student.name = document.getElementById('editStudentName').value.trim();
-  student.date = document.getElementById('editEntryDate').value;
-  student.time = document.getElementById('editArrivalTime').value.trim();
-  student.fine = parseInt(document.getElementById('editFineAmount').value) || 100;
-  student.paid = document.getElementById('editPaidStatus').checked;
-
-  saveState();
-  renderAll();
-  closeEditModal();
-  showToast(`Updated record for ${student.name}`, 'success');
-}
-
-/* ==================== ADMIN AUTHENTICATION ==================== */
-
-/* ==================== ADMIN AUTHENTICATION & MULTI-DEVICE APPROVAL ==================== */
-
-function toggleAdminModal() {
-  if (STATE.isAdmin) {
-    const entryCard = document.getElementById('adminEntryCard');
-    if (entryCard) entryCard.scrollIntoView({ behavior: 'smooth' });
-  } else {
-    resetLoginToPinStep();
-    switchLoginTab('pin');
-    document.getElementById('adminModal').style.display = 'flex';
-    const pinInput = document.getElementById('adminPinInput');
-    if (pinInput) {
-      pinInput.value = '';
-      pinInput.focus();
+      const displayHours = hours % 12 || 12;
+      const displayMinutes = minutes < 10 ? '0' + minutes : minutes;
+      timeInput.value = `${displayHours}:${displayMinutes} ${ampm}`;
     }
   }
-}
 
-function closeAdminModal() {
-  document.getElementById('adminModal').style.display = 'none';
-  STATE.pendingLogin = false;
-}
+  /* ==================== ADMIN ACTIONS (ADD / TICK / EDIT / DELETE) ==================== */
 
-function switchLoginTab(tab) {
-  const pinView = document.getElementById('loginViewPin');
-  const masterView = document.getElementById('loginViewMaster');
-  const pinTabBtn = document.getElementById('tabPinLoginBtn');
-  const masterTabBtn = document.getElementById('tabMasterLoginBtn');
-
-  if (tab === 'master') {
-    if (pinView) pinView.style.display = 'none';
-    if (masterView) masterView.style.display = 'block';
-    if (pinTabBtn) pinTabBtn.classList.remove('active');
-    if (masterTabBtn) masterTabBtn.classList.add('active');
-    const masterKeyInput = document.getElementById('masterOwnerKeyInput');
-    if (masterKeyInput) {
-      masterKeyInput.value = '';
-      masterKeyInput.focus();
+  function handleNewEntry(e) {
+    e.preventDefault();
+    if (!STATE.isAdmin) {
+      showToast('Admin permission required', 'error');
+      return;
     }
-  } else {
+
+    const nameInput = document.getElementById('studentName');
+    const dateInput = document.getElementById('entryDate');
+    const timeInput = document.getElementById('arrivalTime');
+    const fineInput = document.getElementById('fineAmount');
+    const paidCheckbox = document.getElementById('initialPaid');
+
+    const name = nameInput.value.trim();
+    const date = dateInput.value || getLocalDateString();
+    const time = timeInput.value.trim();
+    const fine = parseInt(fineInput.value) || 100;
+    const paid = paidCheckbox.checked;
+
+    if (!name || !time) {
+      showToast('Please fill student name and arrival time', 'error');
+      return;
+    }
+
+    const newStudent = {
+      id: 'st_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+      name: name,
+      date: date,
+      time: time,
+      fine: fine,
+      paid: paid,
+      createdAt: Date.now()
+    };
+
+    // Add to the top of list
+    STATE.students.unshift(newStudent);
+    saveState();
+
+    // Reset filter to 'all' so new entry is immediately visible
+    STATE.currentFilter.date = 'all';
+    const filterDateElem = document.getElementById('filterDate');
+    if (filterDateElem) filterDateElem.value = 'all';
+
+    // Clear search if active
+    const searchInput = document.getElementById('searchStudent');
+    if (searchInput) searchInput.value = '';
+    STATE.currentFilter.search = '';
+
+    renderAll();
+
+    // Reset name input and focus ready for next student
+    nameInput.value = '';
+    paidCheckbox.checked = false;
+    nameInput.focus();
+
+    showToast(`Added ${name} to late records`, 'success');
+  }
+
+  function togglePayment(studentId) {
+    if (!STATE.isAdmin) {
+      showToast('Admin authorization required', 'error');
+      return;
+    }
+
+    const student = STATE.students.find(s => s.id === studentId);
+    if (!student) return;
+
+    student.paid = !student.paid;
+    saveState();
+    renderAll();
+
+    const msg = student.paid
+      ? `Marked ${student.name} as Paid (Rs. ${student.fine})`
+      : `Marked ${student.name} as Pending`;
+    showToast(msg, 'success');
+  }
+
+  function deleteEntry(studentId) {
+    if (!STATE.isAdmin) return;
+
+    const student = STATE.students.find(s => s.id === studentId);
+    if (!student) return;
+
+    if (confirm(`Are you sure you want to delete the record for ${student.name}?`)) {
+      STATE.students = STATE.students.filter(s => s.id !== studentId);
+      saveState();
+      renderAll();
+      showToast(`${student.name} record deleted`, 'info');
+    }
+  }
+
+  function clearAllRecords() {
+    if (!STATE.isAdmin) return;
+
+    if (!STATE.isMasterAdmin) {
+      showToast('Permission Denied: Only Master Admin (iamkausarhayat100@gmail.com) can clear records', 'error');
+      return;
+    }
+
+    if (confirm("Are you sure you want to clear all late records? This action cannot be undone.")) {
+      STATE.students = [];
+      saveState();
+      renderAll();
+      showToast("All records cleared", "info");
+    }
+  }
+
+  function openEditModal(studentId) {
+    if (!STATE.isAdmin) return;
+
+    const student = STATE.students.find(s => s.id === studentId);
+    if (!student) return;
+
+    document.getElementById('editEntryId').value = student.id;
+    document.getElementById('editStudentName').value = student.name;
+    document.getElementById('editEntryDate').value = student.date;
+    document.getElementById('editArrivalTime').value = student.time;
+    document.getElementById('editFineAmount').value = student.fine;
+    document.getElementById('editPaidStatus').checked = student.paid;
+
+    document.getElementById('editEntryModal').style.display = 'flex';
+  }
+
+  function closeEditModal() {
+    document.getElementById('editEntryModal').style.display = 'none';
+  }
+
+  function saveEditedEntry() {
+    const id = document.getElementById('editEntryId').value;
+    const student = STATE.students.find(s => s.id === id);
+    if (!student) return;
+
+    student.name = document.getElementById('editStudentName').value.trim();
+    student.date = document.getElementById('editEntryDate').value;
+    student.time = document.getElementById('editArrivalTime').value.trim();
+    student.fine = parseInt(document.getElementById('editFineAmount').value) || 100;
+    student.paid = document.getElementById('editPaidStatus').checked;
+
+    saveState();
+    renderAll();
+    closeEditModal();
+    showToast(`Updated record for ${student.name}`, 'success');
+  }
+
+  /* ==================== ADMIN AUTHENTICATION ==================== */
+
+  /* ==================== ADMIN AUTHENTICATION & MULTI-DEVICE APPROVAL ==================== */
+
+  function toggleAdminModal() {
+    if (STATE.isAdmin) {
+      const entryCard = document.getElementById('adminEntryCard');
+      if (entryCard) entryCard.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      resetLoginToPinStep();
+      switchLoginTab('pin');
+      document.getElementById('adminModal').style.display = 'flex';
+      const pinInput = document.getElementById('adminPinInput');
+      if (pinInput) {
+        pinInput.value = '';
+        pinInput.focus();
+      }
+    }
+  }
+
+  function closeAdminModal() {
+    document.getElementById('adminModal').style.display = 'none';
+    STATE.pendingLogin = false;
+  }
+
+  function switchLoginTab(tab) {
+    const pinView = document.getElementById('loginViewPin');
+    const masterView = document.getElementById('loginViewMaster');
+    const pinTabBtn = document.getElementById('tabPinLoginBtn');
+    const masterTabBtn = document.getElementById('tabMasterLoginBtn');
+
+    if (tab === 'master') {
+      if (pinView) pinView.style.display = 'none';
+      if (masterView) masterView.style.display = 'block';
+      if (pinTabBtn) pinTabBtn.classList.remove('active');
+      if (masterTabBtn) masterTabBtn.classList.add('active');
+      const masterKeyInput = document.getElementById('masterOwnerKeyInput');
+      if (masterKeyInput) {
+        masterKeyInput.value = '';
+        masterKeyInput.focus();
+      }
+    } else {
+      if (pinView) pinView.style.display = 'block';
+      if (masterView) masterView.style.display = 'none';
+      if (pinTabBtn) pinTabBtn.classList.add('active');
+      if (masterTabBtn) masterTabBtn.classList.remove('active');
+      const pinInput = document.getElementById('adminPinInput');
+      if (pinInput) pinInput.focus();
+    }
+  }
+
+  function resetLoginToPinStep() {
+    const pinView = document.getElementById('loginViewPin');
+    const masterView = document.getElementById('loginViewMaster');
+    const waitingView = document.getElementById('pinStepWaiting');
+    const errorMsg = document.getElementById('loginErrorMsg');
+
+    // Check if this device is pending approval in STATE.adminDevices
+    const currentDev = STATE.adminDevices[STATE.deviceId];
+    if (currentDev && (currentDev.status === 'pending' || currentDev.status === 'pending_master')) {
+      showWaitingScreen(currentDev.name || 'Admin Requester');
+      return;
+    }
+
     if (pinView) pinView.style.display = 'block';
     if (masterView) masterView.style.display = 'none';
-    if (pinTabBtn) pinTabBtn.classList.add('active');
-    if (masterTabBtn) masterTabBtn.classList.remove('active');
+    if (waitingView) waitingView.style.display = 'none';
+    if (errorMsg) errorMsg.style.display = 'none';
+  }
+
+  /**
+   * Handles PIN & Name entry submission with multi-device permission verification
+   */
+  function handleAdminLogin() {
+    const nameInput = document.getElementById('adminLoginNameInput');
     const pinInput = document.getElementById('adminPinInput');
-    if (pinInput) pinInput.focus();
-  }
-}
+    const errorMsg = document.getElementById('loginErrorMsg');
 
-function resetLoginToPinStep() {
-  const pinView = document.getElementById('loginViewPin');
-  const masterView = document.getElementById('loginViewMaster');
-  const waitingView = document.getElementById('pinStepWaiting');
-  const errorMsg = document.getElementById('loginErrorMsg');
+    const enteredName = nameInput ? nameInput.value.trim() : '';
+    const enteredPin = pinInput ? pinInput.value.trim() : '';
 
-  // Check if this device is pending approval in STATE.adminDevices
-  const currentDev = STATE.adminDevices[STATE.deviceId];
-  if (currentDev && currentDev.status === 'pending') {
-    showWaitingScreen(currentDev.name || 'Admin Requester');
-    return;
-  }
-
-  if (pinView) pinView.style.display = 'block';
-  if (masterView) masterView.style.display = 'none';
-  if (waitingView) waitingView.style.display = 'none';
-  if (errorMsg) errorMsg.style.display = 'none';
-}
-
-/**
- * Handles PIN & Name entry submission with multi-device permission verification
- */
-function handleAdminLogin() {
-  const nameInput = document.getElementById('adminLoginNameInput');
-  const pinInput = document.getElementById('adminPinInput');
-  const errorMsg = document.getElementById('loginErrorMsg');
-
-  const enteredName = nameInput ? nameInput.value.trim() : '';
-  const enteredPin = pinInput ? pinInput.value.trim() : '';
-
-  if (!enteredName) {
-    if (errorMsg) {
-      errorMsg.textContent = 'Please enter your Full Name & Role (e.g. Ali Ahmed - CR)';
-      errorMsg.style.display = 'block';
-    }
-    if (nameInput) nameInput.focus();
-    return;
-  }
-
-  if (!enteredPin) {
-    if (errorMsg) {
-      errorMsg.textContent = 'Please enter the Admin Password';
-      errorMsg.style.display = 'block';
-    }
-    if (pinInput) pinInput.focus();
-    return;
-  }
-
-  // Check if entered code matches either the Master PIN or Master Key
-  const isCorrectCode = (enteredPin === STATE.adminPin || enteredPin === STATE.masterKey || enteredPin === '4545' || enteredPin === '9922');
-  if (!isCorrectCode) {
-    if (errorMsg) {
-      errorMsg.textContent = 'Incorrect Password! Access denied.';
-      errorMsg.style.display = 'block';
-    }
-    return;
-  }
-
-  if (errorMsg) errorMsg.style.display = 'none';
-
-  // 1. Check if THIS device is already the verified Master Owner (Kausar's personal device)
-  const isLocalMaster = localStorage.getItem('fc_is_master_owner') === 'true';
-  if (STATE.isMasterAdmin || isLocalMaster) {
-    STATE.isAdmin = true;
-    STATE.isMasterAdmin = true;
-    STATE.adminRole = 'master';
-    sessionStorage.setItem('fc_is_admin', 'true');
-    sessionStorage.setItem('fc_admin_role', 'master');
-    closeAdminModal();
-    updateAdminUI();
-    renderAll();
-    showToast('👑 Master Admin access active (Kausar Hayat)', 'success');
-    return;
-  }
-
-  // 2. Check if this device is ALREADY registered & approved in Cloud by Kausar
-  const currentDev = STATE.adminDevices[STATE.deviceId];
-  if (currentDev) {
-    if (currentDev.status === 'approved') {
-      STATE.isAdmin = true;
-      STATE.isMasterAdmin = false; // Sub-admins can NEVER become Master Admin
-      STATE.adminRole = 'subadmin';
-      sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_role', 'subadmin');
-      closeAdminModal();
-      updateAdminUI();
-      renderAll();
-      showToast(`Welcome back, ${currentDev.name || enteredName}!`, 'success');
-      return;
-    } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
+    if (!enteredName) {
       if (errorMsg) {
-        errorMsg.textContent = 'Access Denied: Your admin permission was removed by Master Admin (iamkausarhayat100@gmail.com).';
+        errorMsg.textContent = 'Please enter your Full Name & Role (e.g. Ali Ahmed - CR)';
+        errorMsg.style.display = 'block';
+      }
+      if (nameInput) nameInput.focus();
+      return;
+    }
+
+    if (!enteredPin) {
+      if (errorMsg) {
+        errorMsg.textContent = 'Please enter the Admin Password';
+        errorMsg.style.display = 'block';
+      }
+      if (pinInput) pinInput.focus();
+      return;
+    }
+
+    // Check if entered code matches either the Master PIN or Master Key
+    const isCorrectCode = (enteredPin === STATE.adminPin || enteredPin === STATE.masterKey || enteredPin === '4545' || enteredPin === '9922');
+    if (!isCorrectCode) {
+      if (errorMsg) {
+        errorMsg.textContent = 'Incorrect Password! Access denied.';
         errorMsg.style.display = 'block';
       }
       return;
-    } else if (currentDev.status === 'pending') {
-      // Waiting for Kausar's approval
-      showWaitingScreen(currentDev.name || enteredName);
-      return;
-    }
-  }
-
-  // 3. ANY OTHER PERSON / NEW DEVICE:
-  // MUST NEVER GET ADMIN ACCESS DIRECTLY!
-  // MUST NEVER BECOME MASTER!
-  // Send email to iamkausarhayat100@gmail.com and transition to waiting screen!
-  const requestPayload = {
-    id: STATE.deviceId,
-    name: enteredName,
-    device: STATE.deviceName,
-    status: 'pending',
-    role: 'subadmin',
-    isOwner: false,
-    requestedAt: Date.now()
-  };
-
-  // Push request to Firebase RTDB so Kausar sees it in real-time
-  if (STATE.firebaseDb) {
-    STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set(requestPayload)
-      .catch(err => console.warn('Failed to push device request to cloud:', err));
-  }
-
-  // Generate direct one-click approval link for Kausar's email
-  const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
-  const pathname = window.location.pathname || '/fine-collector/';
-  const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
-  const approvalLink = `${baseUrl}?action=approve&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
-
-  // Dispatch instant email notification to Master Admin (iamkausarhayat100@gmail.com)
-  sendSecurityEmail(`New Admin Request: Do you want to allow ${enteredName}?`, {
-    Requester_Name: enteredName,
-    Device_Info: STATE.deviceName,
-    Device_ID: STATE.deviceId,
-    Question: `New user "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow this person?`,
-    Approval_Link: approvalLink,
-    Status: 'Pending Master Approval',
-    Instruction: `Click this link to approve immediately: ${approvalLink} or open Fine Collector app and click "Allow Access".`
-  });
-
-  // Transition to waiting screen
-  showWaitingScreen(enteredName);
-}
-
-function showWaitingScreen(name) {
-  const pinView = document.getElementById('loginViewPin');
-  const masterView = document.getElementById('loginViewMaster');
-  const waitingView = document.getElementById('pinStepWaiting');
-
-  if (pinView) pinView.style.display = 'none';
-  if (masterView) masterView.style.display = 'none';
-  if (waitingView) waitingView.style.display = 'block';
-
-  const waitName = document.getElementById('waitRequesterName');
-  const waitDevice = document.getElementById('waitDeviceName');
-  if (waitName) waitName.textContent = name;
-  if (waitDevice) waitDevice.textContent = STATE.deviceName;
-
-  STATE.pendingLogin = true;
-}
-
-/**
- * Direct Master Owner Login (Kausar Hayat) with Master Passkey
- */
-function handleMasterOwnerLogin() {
-  const keyInput = document.getElementById('masterOwnerKeyInput');
-  const errorMsg = document.getElementById('masterLoginErrorMsg');
-  const enteredKey = keyInput ? keyInput.value.trim() : '';
-
-  if (!enteredKey) {
-    if (errorMsg) {
-      errorMsg.textContent = 'Please enter Master Password';
-      errorMsg.style.display = 'block';
-    }
-    return;
-  }
-
-  if (enteredKey !== STATE.masterKey && enteredKey !== '4545') {
-    if (errorMsg) {
-      errorMsg.textContent = 'Invalid Master Password! Access denied.';
-      errorMsg.style.display = 'block';
-    }
-    return;
-  }
-
-  if (errorMsg) errorMsg.style.display = 'none';
-
-  // Mark this device as Master Owner
-  STATE.isAdmin = true;
-  STATE.isMasterAdmin = true;
-  STATE.adminRole = 'master';
-  localStorage.setItem('fc_is_master_owner', 'true');
-  sessionStorage.setItem('fc_is_admin', 'true');
-  sessionStorage.setItem('fc_admin_role', 'master');
-
-  // Register in Firebase RTDB
-  if (STATE.firebaseDb) {
-    STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
-      id: STATE.deviceId,
-      name: 'Kausar Hayat (Master Owner)',
-      device: STATE.deviceName,
-      status: 'approved',
-      role: 'master',
-      isOwner: true,
-      lastSeen: Date.now()
-    }).catch(e => console.warn('Could not register owner device:', e));
-  }
-
-  // Send security email confirmation to Master
-  sendSecurityEmail('👑 Master Admin Logged In', {
-    User_Name: 'Kausar Hayat',
-    Device_Info: STATE.deviceName,
-    Device_ID: STATE.deviceId,
-    Message: 'Master Admin authenticated successfully on this device.'
-  });
-
-  closeAdminModal();
-  updateAdminUI();
-  renderAll();
-  showToast('👑 Welcome Master Admin (Kausar Hayat)! Full system control active.', 'success');
-}
-
-/**
- * Real-time Handler for Cloud Security Devices (Approvals, Revocations, Badges)
- */
-function handleSecurityDevicesUpdate(devices) {
-  const deviceList = Object.values(devices || {}).filter(Boolean);
-
-  // 1. Check current device status
-  const currentDev = devices[STATE.deviceId];
-  if (currentDev) {
-    // If revoked by Master Admin while logged in
-    if (currentDev.status === 'revoked' && STATE.isAdmin && !STATE.isMasterAdmin) {
-      logoutAdmin();
-      showToast('Your admin access was revoked by Master Admin (iamkausarhayat100@gmail.com)', 'error');
-      return;
     }
 
-    // If waiting for approval and just got approved
-    if (currentDev.status === 'approved' && STATE.pendingLogin) {
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    // 1. Check if THIS device is already the verified Master Owner (Kausar's personal device)
+    const isLocalMaster = localStorage.getItem('fc_is_master_owner') === 'true';
+    if (STATE.isMasterAdmin || isLocalMaster) {
       STATE.isAdmin = true;
-      STATE.isMasterAdmin = !!currentDev.isOwner;
-      STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
+      STATE.isMasterAdmin = true;
+      STATE.adminRole = 'master';
       sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_role', STATE.adminRole);
-      STATE.pendingLogin = false;
+      sessionStorage.setItem('fc_admin_role', 'master');
       closeAdminModal();
       updateAdminUI();
       renderAll();
-      showToast('Permission Approved by Master Admin! You are now an Admin.', 'success');
+      showToast('👑 Master Admin access active (Kausar Hayat)', 'success');
+      return;
     }
-  }
 
-  // 2. Count pending requests and active sub-admins
-  const pendingRequests = deviceList.filter(d => d.status === 'pending');
-  const approvedDevices = deviceList.filter(d => d.status === 'approved' && !d.isOwner);
-
-  // Update badges
-  const manageBadge = document.getElementById('manageAdminsPendingBadge');
-  const bannerBadge = document.getElementById('bannerPendingCount');
-  const tabPendingBadge = document.getElementById('manageTabPendingBadge');
-  const tabApprovedBadge = document.getElementById('manageTabApprovedBadge');
-  const headerActiveCount = document.getElementById('headerActiveAdminsCount');
-
-  if (manageBadge) {
-    manageBadge.textContent = pendingRequests.length;
-    manageBadge.style.display = pendingRequests.length > 0 ? 'inline-block' : 'none';
-  }
-  if (bannerBadge) bannerBadge.textContent = pendingRequests.length;
-  if (tabPendingBadge) tabPendingBadge.textContent = pendingRequests.length;
-  if (tabApprovedBadge) tabApprovedBadge.textContent = approvedDevices.length;
-  if (headerActiveCount) {
-    headerActiveCount.innerHTML = `<i class="fa-solid fa-user-shield"></i> Active Admins: <strong>${approvedDevices.length}</strong>`;
-  }
-
-  // 3. Floating permission alert banner for Master Admin
-  const banner = document.getElementById('permissionAlertBanner');
-  const bannerDesc = document.getElementById('permissionAlertDesc');
-
-  if (STATE.isAdmin && STATE.isMasterAdmin && pendingRequests.length > 0) {
-    const latest = pendingRequests[pendingRequests.length - 1];
-    STATE.pendingDeviceIdToApprove = latest.id;
-    if (bannerDesc) {
-      bannerDesc.textContent = `${latest.name || 'User'} (${latest.device || 'Device'}) wants Admin permission.`;
+    // 2. Check if this device is ALREADY registered & approved in Cloud by Kausar
+    const currentDev = STATE.adminDevices[STATE.deviceId];
+    if (currentDev) {
+      if (currentDev.status === 'approved') {
+        STATE.isAdmin = true;
+        STATE.isMasterAdmin = false; // Sub-admins can NEVER become Master Admin
+        STATE.adminRole = 'subadmin';
+        sessionStorage.setItem('fc_is_admin', 'true');
+        sessionStorage.setItem('fc_admin_role', 'subadmin');
+        closeAdminModal();
+        updateAdminUI();
+        renderAll();
+        showToast(`Welcome back, ${currentDev.name || enteredName}!`, 'success');
+        return;
+      } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
+        if (errorMsg) {
+          errorMsg.textContent = 'Access Denied: Your admin permission was removed by Master Admin (iamkausarhayat100@gmail.com).';
+          errorMsg.style.display = 'block';
+        }
+        return;
+      } else if (currentDev.status === 'pending') {
+        // Waiting for Kausar's approval
+        showWaitingScreen(currentDev.name || enteredName);
+        return;
+      }
     }
-    if (banner) banner.style.display = 'flex';
-  } else {
-    if (banner) banner.style.display = 'none';
-    STATE.pendingDeviceIdToApprove = null;
+
+    // 3. ANY OTHER PERSON / NEW DEVICE:
+    // MUST NEVER GET ADMIN ACCESS DIRECTLY!
+    // MUST NEVER BECOME MASTER!
+    // Send email to iamkausarhayat100@gmail.com and transition to waiting screen!
+    const requestPayload = {
+      id: STATE.deviceId,
+      name: enteredName,
+      device: STATE.deviceName,
+      status: 'pending',
+      role: 'subadmin',
+      isOwner: false,
+      requestedAt: Date.now()
+    };
+
+    // Push request to Firebase RTDB so Kausar sees it in real-time
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set(requestPayload)
+        .catch(err => console.warn('Failed to push device request to cloud:', err));
+    }
+
+    // Generate direct one-click approval link for Kausar's email
+    const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
+    const pathname = window.location.pathname || '/fine-collector/';
+    const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
+    const approvalLink = `${baseUrl}?action=approve&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
+
+    // Dispatch instant email notification to Master Admin (iamkausarhayat100@gmail.com)
+    sendSecurityEmail(`New Admin Request: Do you want to allow ${enteredName}?`, {
+      Requester_Name: enteredName,
+      Device_Info: STATE.deviceName,
+      Device_ID: STATE.deviceId,
+      Question: `New user "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow this person?`,
+      Approval_Link: approvalLink,
+      Status: 'Pending Master Approval',
+      Instruction: `Click this link to approve immediately: ${approvalLink} or open Fine Collector app and click "Allow Access".`
+    });
+
+    // Transition to waiting screen
+    showWaitingScreen(enteredName);
   }
 
-  // 4. If Manage Admins Modal is open, refresh its content
-  if (document.getElementById('adminManageModal')?.style.display === 'flex') {
-    renderAdminDevicesList();
+  function showWaitingScreen(name) {
+    const pinView = document.getElementById('loginViewPin');
+    const masterView = document.getElementById('loginViewMaster');
+    const waitingView = document.getElementById('pinStepWaiting');
+
+    if (pinView) pinView.style.display = 'none';
+    if (masterView) masterView.style.display = 'none';
+    if (waitingView) waitingView.style.display = 'block';
+
+    const waitName = document.getElementById('waitRequesterName');
+    const waitDevice = document.getElementById('waitDeviceName');
+    if (waitName) waitName.textContent = name;
+    if (waitDevice) waitDevice.textContent = STATE.deviceName;
+
+    STATE.pendingLogin = true;
   }
-}
 
-/* ==================== MANAGE ADMINS MODAL (MASTER ADMIN ONLY) ==================== */
+  /**
+   * Direct Master Owner Login (Kausar Hayat) with Master Passkey
+   */
+  function handleMasterOwnerLogin() {
+    const keyInput = document.getElementById('masterOwnerKeyInput');
+    const errorMsg = document.getElementById('masterLoginErrorMsg');
+    const enteredKey = keyInput ? keyInput.value.trim() : '';
 
-function openAdminManagementModal() {
-  if (!STATE.isAdmin || !STATE.isMasterAdmin) {
-    showToast('Only Master Admin (iamkausarhayat100@gmail.com) can manage admins', 'error');
-    return;
+    if (!enteredKey) {
+      if (errorMsg) {
+        errorMsg.textContent = 'Please enter Master Password';
+        errorMsg.style.display = 'block';
+      }
+      return;
+    }
+
+    if (enteredKey !== STATE.masterKey && enteredKey !== '4545') {
+      if (errorMsg) {
+        errorMsg.textContent = 'Invalid Master Password! Access denied.';
+        errorMsg.style.display = 'block';
+      }
+      return;
+    }
+
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    // Check if this device is already verified as Master Owner
+    const currentDev = STATE.adminDevices[STATE.deviceId];
+    const isAlreadyMaster = (localStorage.getItem('fc_is_master_owner') === 'true') ||
+      (currentDev && currentDev.isOwner === true && currentDev.status === 'approved');
+
+    // Also check if cloud has NO owner registered yet (first time initialization by Kausar)
+    const hasAnyRegisteredOwner = Object.values(STATE.adminDevices || {}).some(d => d && d.isOwner === true && d.status === 'approved');
+
+    if (isAlreadyMaster || !hasAnyRegisteredOwner) {
+      // Verified Master Owner device
+      STATE.isAdmin = true;
+      STATE.isMasterAdmin = true;
+      STATE.adminRole = 'master';
+      localStorage.setItem('fc_is_master_owner', 'true');
+      sessionStorage.setItem('fc_is_admin', 'true');
+      sessionStorage.setItem('fc_admin_role', 'master');
+
+      if (STATE.firebaseDb) {
+        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+          id: STATE.deviceId,
+          name: 'Kausar Hayat (Master Owner)',
+          device: STATE.deviceName,
+          status: 'approved',
+          role: 'master',
+          isOwner: true,
+          lastSeen: Date.now()
+        }).catch(e => console.warn('Could not register owner device:', e));
+      }
+
+      sendSecurityEmail('👑 Master Admin Logged In', {
+        User_Name: 'Kausar Hayat',
+        Device_Info: STATE.deviceName,
+        Device_ID: STATE.deviceId,
+        Message: 'Master Admin authenticated successfully on verified device.'
+      });
+
+      closeAdminModal();
+      updateAdminUI();
+      renderAll();
+      showToast('👑 Welcome Master Admin (Kausar Hayat)! Full system control active.', 'success');
+      return;
+    }
+
+    // If an owner already exists and this is an unrecognized device:
+    // MUST require authorization email to iamkausarhayat100@gmail.com!
+    const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
+    const pathname = window.location.pathname || '/fine-collector/';
+    const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
+    const masterApprovalLink = `${baseUrl}?action=approve_master&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
+
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+        id: STATE.deviceId,
+        name: 'Kausar Hayat (Master Verification Request)',
+        device: STATE.deviceName,
+        status: 'pending_master',
+        role: 'pending_master',
+        isOwner: false,
+        requestedAt: Date.now()
+      }).catch(e => console.warn('Firebase set error:', e));
+    }
+
+    sendSecurityEmail('Master Owner Login Verification Alert', {
+      Device_Info: STATE.deviceName,
+      Device_ID: STATE.deviceId,
+      Message: `Someone entered Master Password 4545 on a new device (${STATE.deviceName}). If this is you (Kausar Hayat), click the authorization link below to activate Master Admin access on this device.`,
+      Approval_Link: masterApprovalLink,
+      Status: 'Pending Master Verification',
+      Instruction: `Click this link to authorize as Master Owner: ${masterApprovalLink}`
+    });
+
+    showWaitingScreen('Kausar Hayat (Master Verification)');
+    showToast('Verification alert sent to iamkausarhayat100@gmail.com', 'info');
   }
 
-  renderAdminDevicesList();
-  switchManageTab('pending');
-  document.getElementById('adminManageModal').style.display = 'flex';
-}
+  /**
+   * Real-time Handler for Cloud Security Devices (Approvals, Revocations, Badges)
+   */
+  function handleSecurityDevicesUpdate(devices) {
+    const deviceList = Object.values(devices || {}).filter(Boolean);
 
-function closeAdminManagementModal() {
-  document.getElementById('adminManageModal').style.display = 'none';
-}
+    // 1. Check current device status
+    const currentDev = devices[STATE.deviceId];
+    if (currentDev) {
+      // If revoked by Master Admin while logged in
+      if (currentDev.status === 'revoked' && STATE.isAdmin && !STATE.isMasterAdmin) {
+        logoutAdmin();
+        showToast('Your admin access was revoked by Master Admin (iamkausarhayat100@gmail.com)', 'error');
+        return;
+      }
 
-function switchManageTab(tab) {
-  const vPending = document.getElementById('manageViewPending');
-  const vApproved = document.getElementById('manageViewApproved');
-  const vSecurity = document.getElementById('manageViewSecurity');
-  const bPending = document.getElementById('tabManagePendingBtn');
-  const bApproved = document.getElementById('tabManageApprovedBtn');
-  const bSecurity = document.getElementById('tabManageSecurityBtn');
+      // If waiting for approval and just got approved
+      if (currentDev.status === 'approved' && STATE.pendingLogin) {
+        STATE.isAdmin = true;
+        STATE.isMasterAdmin = !!currentDev.isOwner;
+        STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
+        if (currentDev.isOwner) {
+          localStorage.setItem('fc_is_master_owner', 'true');
+        }
+        sessionStorage.setItem('fc_is_admin', 'true');
+        sessionStorage.setItem('fc_admin_role', STATE.adminRole);
+        STATE.pendingLogin = false;
+        closeAdminModal();
+        updateAdminUI();
+        renderAll();
+        showToast(currentDev.isOwner ? '👑 Master Admin Verified by Email!' : 'Permission Approved by Master Admin! You are now an Admin.', 'success');
+      }
+    }
 
-  if (vPending) vPending.style.display = tab === 'pending' ? 'block' : 'none';
-  if (vApproved) vApproved.style.display = tab === 'approved' ? 'block' : 'none';
-  if (vSecurity) vSecurity.style.display = tab === 'security' ? 'block' : 'none';
+    // 2. Count pending requests and active sub-admins
+    const pendingRequests = deviceList.filter(d => d.status === 'pending' || d.status === 'pending_master');
+    const approvedDevices = deviceList.filter(d => d.status === 'approved' && !d.isOwner);
 
-  if (bPending) bPending.classList.toggle('active', tab === 'pending');
-  if (bApproved) bApproved.classList.toggle('active', tab === 'approved');
-  if (bSecurity) bSecurity.classList.toggle('active', tab === 'security');
+    // Update badges
+    const manageBadge = document.getElementById('manageAdminsPendingBadge');
+    const bannerBadge = document.getElementById('bannerPendingCount');
+    const tabPendingBadge = document.getElementById('manageTabPendingBadge');
+    const tabApprovedBadge = document.getElementById('manageTabApprovedBadge');
+    const headerActiveCount = document.getElementById('headerActiveAdminsCount');
 
-  if (tab === 'pending' || tab === 'approved') {
-    renderAdminDevicesList();
-  }
-}
+    if (manageBadge) {
+      manageBadge.textContent = pendingRequests.length;
+      manageBadge.style.display = pendingRequests.length > 0 ? 'inline-block' : 'none';
+    }
+    if (bannerBadge) bannerBadge.textContent = pendingRequests.length;
+    if (tabPendingBadge) tabPendingBadge.textContent = pendingRequests.length;
+    if (tabApprovedBadge) tabApprovedBadge.textContent = approvedDevices.length;
+    if (headerActiveCount) {
+      headerActiveCount.innerHTML = `<i class="fa-solid fa-user-shield"></i> Active Admins: <strong>${approvedDevices.length}</strong>`;
+    }
 
-function renderAdminDevicesList() {
-  const pendingContainer = document.getElementById('pendingRequestsList');
-  const approvedContainer = document.getElementById('approvedAdminsList');
-  const emptyPending = document.getElementById('emptyPendingRequests');
-  const emptyApproved = document.getElementById('emptyApprovedAdmins');
+    // 3. Floating permission alert banner for Master Admin
+    const banner = document.getElementById('permissionAlertBanner');
+    const bannerDesc = document.getElementById('permissionAlertDesc');
 
-  const devices = Object.values(STATE.adminDevices || {}).filter(Boolean);
-  const pending = devices.filter(d => d.status === 'pending');
-  const approved = devices.filter(d => d.status === 'approved' && !d.isOwner);
-
-  // Render Pending
-  if (pendingContainer) {
-    pendingContainer.innerHTML = '';
-    if (pending.length === 0) {
-      if (emptyPending) emptyPending.style.display = 'block';
+    if (STATE.isAdmin && STATE.isMasterAdmin && pendingRequests.length > 0) {
+      const latest = pendingRequests[pendingRequests.length - 1];
+      STATE.pendingDeviceIdToApprove = latest.id;
+      if (bannerDesc) {
+        const isM = latest.status === 'pending_master' || latest.role === 'pending_master';
+        bannerDesc.textContent = isM
+          ? `Master Authorization requested on ${latest.device || 'New Device'}.`
+          : `${latest.name || 'User'} (${latest.device || 'Device'}) wants Admin permission.`;
+      }
+      if (banner) banner.style.display = 'flex';
     } else {
-      if (emptyPending) emptyPending.style.display = 'none';
-      pending.forEach(dev => {
-        const timeAgo = dev.requestedAt ? new Date(dev.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently';
-        const card = document.createElement('div');
-        card.className = 'device-card';
-        card.innerHTML = `
+      if (banner) banner.style.display = 'none';
+      STATE.pendingDeviceIdToApprove = null;
+    }
+
+    // 4. If Manage Admins Modal is open, refresh its content
+    if (document.getElementById('adminManageModal')?.style.display === 'flex') {
+      renderAdminDevicesList();
+    }
+  }
+
+  /* ==================== MANAGE ADMINS MODAL (MASTER ADMIN ONLY) ==================== */
+
+  function openAdminManagementModal() {
+    if (!STATE.isAdmin || !STATE.isMasterAdmin) {
+      showToast('Only Master Admin (iamkausarhayat100@gmail.com) can manage admins', 'error');
+      return;
+    }
+
+    renderAdminDevicesList();
+    switchManageTab('pending');
+    document.getElementById('adminManageModal').style.display = 'flex';
+  }
+
+  function closeAdminManagementModal() {
+    document.getElementById('adminManageModal').style.display = 'none';
+  }
+
+  function switchManageTab(tab) {
+    const vPending = document.getElementById('manageViewPending');
+    const vApproved = document.getElementById('manageViewApproved');
+    const vSecurity = document.getElementById('manageViewSecurity');
+    const bPending = document.getElementById('tabManagePendingBtn');
+    const bApproved = document.getElementById('tabManageApprovedBtn');
+    const bSecurity = document.getElementById('tabManageSecurityBtn');
+
+    if (vPending) vPending.style.display = tab === 'pending' ? 'block' : 'none';
+    if (vApproved) vApproved.style.display = tab === 'approved' ? 'block' : 'none';
+    if (vSecurity) vSecurity.style.display = tab === 'security' ? 'block' : 'none';
+
+    if (bPending) bPending.classList.toggle('active', tab === 'pending');
+    if (bApproved) bApproved.classList.toggle('active', tab === 'approved');
+    if (bSecurity) bSecurity.classList.toggle('active', tab === 'security');
+
+    if (tab === 'pending' || tab === 'approved') {
+      renderAdminDevicesList();
+    }
+  }
+
+  function renderAdminDevicesList() {
+    const pendingContainer = document.getElementById('pendingRequestsList');
+    const approvedContainer = document.getElementById('approvedAdminsList');
+    const emptyPending = document.getElementById('emptyPendingRequests');
+    const emptyApproved = document.getElementById('emptyApprovedAdmins');
+
+    const devices = Object.values(STATE.adminDevices || {}).filter(Boolean);
+    const pending = devices.filter(d => d.status === 'pending' || d.status === 'pending_master');
+    const approved = devices.filter(d => d.status === 'approved' && !d.isOwner);
+
+    // Render Pending
+    if (pendingContainer) {
+      pendingContainer.innerHTML = '';
+      if (pending.length === 0) {
+        if (emptyPending) emptyPending.style.display = 'block';
+      } else {
+        if (emptyPending) emptyPending.style.display = 'none';
+        pending.forEach(dev => {
+          const isMasterReq = dev.status === 'pending_master' || dev.role === 'pending_master';
+          const timeAgo = dev.requestedAt ? new Date(dev.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently';
+          const card = document.createElement('div');
+          card.className = 'device-card';
+          card.innerHTML = `
           <div class="device-info-left">
-            <div class="device-icon-box"><i class="fa-solid fa-mobile-screen"></i></div>
+            <div class="device-icon-box" style="${isMasterReq ? 'background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3);' : ''}">
+              <i class="fa-solid ${isMasterReq ? 'fa-crown' : 'fa-mobile-screen'}"></i>
+            </div>
             <div>
-              <div class="device-name-title">${escapeHtml(dev.name)}</div>
+              <div class="device-name-title">
+                ${escapeHtml(dev.name)}
+                ${isMasterReq ? '<span class="badge-waiting" style="background: rgba(245,158,11,0.15); color: #fbbf24; border-color: rgba(245,158,11,0.3); margin-left: 6px;">Master Verification</span>' : ''}
+              </div>
               <div class="device-meta-sub">
                 <span><i class="fa-solid fa-laptop"></i> ${escapeHtml(dev.device)}</span>
                 <span>&bull;</span>
@@ -1165,31 +1237,31 @@ function renderAdminDevicesList() {
             </div>
           </div>
           <div class="device-actions">
-            <button class="btn-card-approve" onclick="approveDevice('${dev.id}')">
-              <i class="fa-solid fa-check"></i> Allow Access
+            <button class="btn-card-approve" onclick="approveDevice('${dev.id}', ${isMasterReq ? 'true' : 'false'})">
+              <i class="fa-solid ${isMasterReq ? 'fa-crown' : 'fa-check'}"></i> ${isMasterReq ? 'Authorize Master' : 'Allow Access'}
             </button>
             <button class="btn-card-reject" onclick="rejectDevice('${dev.id}')">
               <i class="fa-solid fa-xmark"></i> Reject
             </button>
           </div>
         `;
-        pendingContainer.appendChild(card);
-      });
+          pendingContainer.appendChild(card);
+        });
+      }
     }
-  }
 
-  // Render Approved
-  if (approvedContainer) {
-    approvedContainer.innerHTML = '';
-    if (approved.length === 0) {
-      if (emptyApproved) emptyApproved.style.display = 'block';
-    } else {
-      if (emptyApproved) emptyApproved.style.display = 'none';
-      approved.forEach(dev => {
-        const approvedTime = dev.approvedAt ? new Date(dev.approvedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Authorized';
-        const card = document.createElement('div');
-        card.className = 'device-card';
-        card.innerHTML = `
+    // Render Approved
+    if (approvedContainer) {
+      approvedContainer.innerHTML = '';
+      if (approved.length === 0) {
+        if (emptyApproved) emptyApproved.style.display = 'block';
+      } else {
+        if (emptyApproved) emptyApproved.style.display = 'none';
+        approved.forEach(dev => {
+          const approvedTime = dev.approvedAt ? new Date(dev.approvedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Authorized';
+          const card = document.createElement('div');
+          card.className = 'device-card';
+          card.innerHTML = `
           <div class="device-info-left">
             <div class="device-icon-box" style="background: rgba(16, 185, 129, 0.12); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">
               <i class="fa-solid fa-user-shield"></i>
@@ -1215,20 +1287,33 @@ function renderAdminDevicesList() {
   }
 }
 
-function approveDevice(deviceId) {
+function approveDevice(deviceId, asMaster = false) {
   if (!STATE.isMasterAdmin) return;
   const dev = STATE.adminDevices[deviceId];
   if (!dev) return;
 
+  const isMaster = asMaster || dev.status === 'pending_master' || dev.role === 'pending_master';
+
   if (STATE.firebaseDb) {
-    STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update({
+    const updatePayload = {
       status: 'approved',
       approvedAt: Date.now()
-    }).then(() => {
-      showToast(`Admin access granted to ${dev.name}`, 'success');
-      sendSecurityEmail('Admin Access Approved', {
+    };
+    if (isMaster) {
+      updatePayload.role = 'master';
+      updatePayload.isOwner = true;
+      updatePayload.name = 'Kausar Hayat (Master Owner)';
+    } else {
+      updatePayload.role = 'subadmin';
+      updatePayload.isOwner = false;
+    }
+
+    STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update(updatePayload).then(() => {
+      showToast(`${isMaster ? 'Master' : 'Sub-Admin'} access granted to ${dev.name}`, 'success');
+      sendSecurityEmail(`${isMaster ? 'Master' : 'Sub-Admin'} Access Approved`, {
         Approved_User: dev.name,
         Device_Info: dev.device,
+        Role_Granted: isMaster ? 'Master Admin (Owner)' : 'Sub-Admin',
         Approved_By: 'Kausar Hayat (Master Admin)'
       });
     });
@@ -1536,6 +1621,7 @@ function handleChangePin() {
     closePinModal();
   }, 1200);
 }
+
 /* ==================== CLOUD DATABASE SETUP MODAL ==================== */
 
 function openCloudModal() {
