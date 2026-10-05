@@ -20,6 +20,8 @@ const STATE = {
   deviceId: '',
   deviceName: '',
   adminDevices: {},
+  adminPrivateKeys: {},  // Master-generated 4-digit keys for authorized admins
+  isMasterMindClaimed: true, // Single Master Mind permanent authority (Kausar Hayat)
   pendingLogin: false,
   pendingDeviceIdToApprove: null,
   currentFilter: {
@@ -285,6 +287,34 @@ function initCloudOrLocalStorage() {
         const devices = snapshot.val() || {};
         STATE.adminDevices = devices;
         handleSecurityDevicesUpdate(devices);
+        updateMasterLoginViewMode();
+      });
+
+      // 5. Realtime listener for Master Mind Assigned Private Keys
+      STATE.firebaseDb.ref('security/admin_private_keys').on('value', (snapshot) => {
+        const keys = snapshot.val() || {};
+        STATE.adminPrivateKeys = keys;
+        localStorage.setItem('fc_admin_private_keys', JSON.stringify(keys));
+        renderAdminPrivateKeysList();
+      });
+
+      // 6. Realtime listener for System Master Owner identity
+      STATE.firebaseDb.ref('security/system_master_owner').on('value', (snapshot) => {
+        const ownerData = snapshot.val();
+        if (ownerData && ownerData.claimed) {
+          STATE.isMasterMindClaimed = true;
+          STATE.masterOwnerData = ownerData;
+        } else {
+          // Initialize permanent single master owner
+          STATE.firebaseDb.ref('security/system_master_owner').set({
+            ownerName: 'Kausar Hayat',
+            ownerEmail: 'iamkausarhayat100@gmail.com',
+            claimed: true,
+            claimedAt: Date.now()
+          });
+          STATE.isMasterMindClaimed = true;
+        }
+        updateMasterLoginViewMode();
       });
 
       // If current device is Master Owner, ensure its presence in cloud devices
@@ -939,6 +969,12 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     const waitingView = document.getElementById('pinStepWaiting');
     const deniedView = document.getElementById('pinStepDenied');
     const errorMsg = document.getElementById('loginErrorMsg');
+    const step2Error = document.getElementById('step2ErrorMsg');
+    const s1 = document.getElementById('adminStep1Wrap');
+    const s2 = document.getElementById('adminStep2Wrap');
+
+    if (s1) s1.style.display = 'block';
+    if (s2) s2.style.display = 'none';
 
     // Check if this device is pending or rejected in STATE.adminDevices
     const currentDev = STATE.adminDevices[STATE.deviceId];
@@ -957,12 +993,69 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     if (waitingView) waitingView.style.display = 'none';
     if (deniedView) deniedView.style.display = 'none';
     if (errorMsg) errorMsg.style.display = 'none';
+    if (step2Error) step2Error.style.display = 'none';
+
+    updateMasterLoginViewMode();
+  }
+
+  function updateMasterLoginViewMode() {
+    const formCard = document.getElementById('masterLoginFormCard');
+    const noticeCard = document.getElementById('masterReservedNotice');
+    if (!formCard || !noticeCard) return;
+
+    const isLocalMaster = localStorage.getItem('fc_is_master_owner') === 'true';
+    const currentDev = STATE.adminDevices[STATE.deviceId];
+    const isApprovedMaster = (currentDev && currentDev.isOwner === true && currentDev.status === 'approved') || isLocalMaster;
+
+    if (isApprovedMaster) {
+      formCard.style.display = 'block';
+      noticeCard.style.display = 'none';
+    } else {
+      formCard.style.display = 'none';
+      noticeCard.style.display = 'block';
+    }
+  }
+
+  function sendMasterRecoveryEmail() {
+    const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
+    const pathname = window.location.pathname || '/fine-collector/';
+    const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
+    const masterApprovalLink = `${baseUrl}?action=approve_master&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
+    const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
+
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+        id: STATE.deviceId,
+        name: 'Kausar Hayat (Master Recovery Request)',
+        device: STATE.deviceName,
+        status: 'pending_master',
+        role: 'pending_master',
+        isOwner: false,
+        requestedAt: Date.now()
+      }).catch(e => console.warn('Firebase set error:', e));
+    }
+
+    sendSecurityEmail('👑 Master Mind Recovery Request', {
+      Request_Type: 'Master Mind Recovery Request',
+      Requester_Name: 'Kausar Hayat (Master Recovery)',
+      Applicant_Role: '👑 Master Mind',
+      Device_Info: STATE.deviceName,
+      Device_ID: STATE.deviceId,
+      Question: `Master Mind login requested on device (${STATE.deviceName}). If this is you (Kausar Hayat), tap Allow to authorize Master Mind control on this device.`,
+      CLICK_TO_ALLOW: masterApprovalLink,
+      CLICK_TO_ALLOW_MASTER: masterApprovalLink,
+      CLICK_TO_DENY: denialLink,
+      Status: 'Pending Master Mind Confirmation'
+    });
+
+    showWaitingScreen('Kausar Hayat (Master Recovery)', 'Master Admin');
+    showToast('Master unlock link dispatched to iamkausarhayat100@gmail.com', 'info');
   }
 
   /**
-   * Handles PIN & Name entry submission with multi-device permission verification
+   * STEP 1 -> STEP 2: Validates Name & Shared Password (4545)
    */
-  function handleAdminLogin() {
+  function goToAdminStep2() {
     const nameInput = document.getElementById('adminLoginNameInput');
     const pinInput = document.getElementById('adminPinInput');
     const errorMsg = document.getElementById('loginErrorMsg');
@@ -972,7 +1065,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (!enteredName) {
       if (errorMsg) {
-        errorMsg.textContent = 'Please enter your Full Name & Role (e.g. Ali Ahmed - CR)';
+        errorMsg.textContent = 'Please enter your Full Name (e.g. kausar or Ali Khan)';
         errorMsg.style.display = 'block';
       }
       if (nameInput) nameInput.focus();
@@ -981,18 +1074,17 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (!enteredPin) {
       if (errorMsg) {
-        errorMsg.textContent = 'Please enter the Admin Password';
+        errorMsg.textContent = 'Please enter the Admin Password (4545)';
         errorMsg.style.display = 'block';
       }
       if (pinInput) pinInput.focus();
       return;
     }
 
-    // Check if entered code matches either the Master PIN or Master Key
     const isCorrectCode = (enteredPin === STATE.adminPin || enteredPin === STATE.masterKey || enteredPin === '4545' || enteredPin === '9922');
     if (!isCorrectCode) {
       if (errorMsg) {
-        errorMsg.textContent = 'Incorrect Password! Access denied.';
+        errorMsg.textContent = 'Incorrect Admin Password! Access denied.';
         errorMsg.style.display = 'block';
       }
       return;
@@ -1000,74 +1092,167 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
-    // 1. FAST-LANE LOGIN: If this device is ALREADY verified & approved in Cloud by Kausar:
-    // DIRECT LOGIN IMMEDIATELY! NO EMAIL WAIT!
+    // Fast check: If device is ALREADY approved in cloud, directly unlock!
     const currentDev = STATE.adminDevices[STATE.deviceId];
-    if (currentDev) {
-      if (currentDev.status === 'approved') {
-        STATE.isAdmin = true;
-        STATE.isMasterAdmin = !!currentDev.isOwner;
-        STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
-        sessionStorage.setItem('fc_is_admin', 'true');
-        sessionStorage.setItem('fc_admin_role', STATE.adminRole);
-        localStorage.setItem('fc_approved_device_token', 'true');
+    if (currentDev && currentDev.status === 'approved') {
+      STATE.isAdmin = true;
+      STATE.isMasterAdmin = !!currentDev.isOwner;
+      STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
+      sessionStorage.setItem('fc_is_admin', 'true');
+      sessionStorage.setItem('fc_admin_role', STATE.adminRole);
+      closeAdminModal();
+      updateAdminUI();
+      renderAll();
+      showToast(`Welcome back, ${currentDev.name || enteredName}! Admin access active.`, 'success');
+      return;
+    }
 
-        closeAdminModal();
-        updateAdminUI();
-        renderAll();
-        showToast(`Welcome back, ${currentDev.name || enteredName}! Admin access active.`, 'success');
-        return;
-      } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
-        showDenialScreen('You are denied by Kausar Khattak');
-        return;
-      } else if (currentDev.status === 'pending') {
-        // Waiting for Kausar's approval
-        showWaitingScreen(currentDev.name || enteredName, 'Sub-Admin');
-        return;
+    // Advance to Step 2: Private Key
+    const tag = document.getElementById('step2ApplicantTag');
+    if (tag) tag.textContent = enteredName;
+
+    const s1 = document.getElementById('adminStep1Wrap');
+    const s2 = document.getElementById('adminStep2Wrap');
+    if (s1) s1.style.display = 'none';
+    if (s2) s2.style.display = 'block';
+
+    const keyInput = document.getElementById('adminPrivateKeyInput');
+    if (keyInput) {
+      keyInput.value = '';
+      keyInput.focus();
+    }
+  }
+
+  function backToAdminStep1() {
+    const s1 = document.getElementById('adminStep1Wrap');
+    const s2 = document.getElementById('adminStep2Wrap');
+    if (s2) s2.style.display = 'none';
+    if (s1) s1.style.display = 'block';
+    const step2Error = document.getElementById('step2ErrorMsg');
+    if (step2Error) step2Error.style.display = 'none';
+  }
+
+  /**
+   * STEP 2: Verifies Master Mind Assigned 4-Digit Private Key (Case-Sensitive Name Match)
+   */
+  function handleAdminPrivateKeySubmit() {
+    const nameInput = document.getElementById('adminLoginNameInput');
+    const keyInput = document.getElementById('adminPrivateKeyInput');
+    const errorMsg = document.getElementById('step2ErrorMsg');
+
+    const enteredName = nameInput ? nameInput.value.trim() : '';
+    const enteredKey = keyInput ? keyInput.value.trim() : '';
+
+    if (!enteredKey) {
+      if (errorMsg) {
+        errorMsg.textContent = 'Please enter your 4-digit Private Key';
+        errorMsg.style.display = 'block';
       }
+      if (keyInput) keyInput.focus();
+      return;
     }
 
-    // 2. UNVERIFIED / NEW DEVICE: Mandatory 1-Time Master Mind Permission Email
-    const requestPayload = {
-      id: STATE.deviceId,
-      name: enteredName,
-      device: STATE.deviceName,
-      status: 'pending',
-      role: 'subadmin',
-      isOwner: false,
-      requestedAt: Date.now()
-    };
+    // 1. Exact case-sensitive match against Master Mind Assigned Private Keys
+    const allKeys = Object.values(STATE.adminPrivateKeys || {}).filter(Boolean);
+    const matchedKeyEntry = allKeys.find(k => 
+      k && 
+      k.status === 'active' && 
+      k.name === enteredName &&   // Exact case-sensitive matching!
+      String(k.key).trim() === enteredKey
+    );
 
-    // Push request to Firebase RTDB so Kausar sees it in real-time
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set(requestPayload)
-        .catch(err => console.warn('Failed to push device request to cloud:', err));
+    // Master override for Kausar Hayat testing
+    const isMasterOverride = (enteredKey === '4545' || enteredKey === STATE.masterKey) && 
+                             (enteredName.toLowerCase().includes('kausar') || enteredName.toLowerCase().includes('master'));
+
+    if (matchedKeyEntry || isMasterOverride) {
+      // Key is authentic! DIRECT INSTANT UNLOCK!
+      STATE.isAdmin = true;
+      STATE.isMasterAdmin = isMasterOverride;
+      STATE.adminRole = isMasterOverride ? 'master' : 'subadmin';
+      sessionStorage.setItem('fc_is_admin', 'true');
+      sessionStorage.setItem('fc_admin_name', enteredName);
+      sessionStorage.setItem('fc_admin_role', STATE.adminRole);
+      localStorage.setItem('fc_approved_device_token', 'true');
+
+      if (STATE.firebaseDb && STATE.deviceId) {
+        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+          id: STATE.deviceId,
+          name: enteredName,
+          device: STATE.deviceName,
+          status: 'approved',
+          role: STATE.adminRole,
+          isOwner: isMasterOverride,
+          usedPrivateKeyId: matchedKeyEntry ? matchedKeyEntry.id : 'master_override',
+          lastSeen: Date.now()
+        }).catch(() => {});
+
+        if (matchedKeyEntry) {
+          STATE.firebaseDb.ref(`security/admin_private_keys/${matchedKeyEntry.id}`).update({
+            lastUsed: Date.now(),
+            lastDevice: STATE.deviceName
+          }).catch(() => {});
+        }
+      }
+
+      closeAdminModal();
+      updateAdminUI();
+      renderAll();
+      showToast(`Welcome, ${enteredName}! Sub-Admin access unlocked.`, 'success');
+      return;
     }
 
-    // Generate direct one-click approval & denial links for Kausar's email
+    // If key not matched
+    if (errorMsg) {
+      errorMsg.textContent = 'Invalid Name or 4-Digit Private Key! Access Denied by Kausar Khattak.';
+      errorMsg.style.display = 'block';
+    }
+  }
+
+  /**
+   * Allows applicants who don't have a private key to request permission via email
+   */
+  function requestEmailPermissionFromStep2() {
+    const nameInput = document.getElementById('adminLoginNameInput');
+    const enteredName = nameInput ? nameInput.value.trim() : 'Admin Requester';
+
     const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
     const pathname = window.location.pathname || '/fine-collector/';
     const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
     const approvalLink = `${baseUrl}?action=approve&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
     const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
 
-    // Dispatch instant email notification to Master Mind (iamkausarhayat100@gmail.com)
-    sendSecurityEmail(`🛡️ Someone wants to become an Admin (${enteredName})`, {
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+        id: STATE.deviceId,
+        name: enteredName,
+        device: STATE.deviceName,
+        status: 'pending',
+        role: 'subadmin',
+        isOwner: false,
+        requestedAt: Date.now()
+      }).catch(() => {});
+    }
+
+    sendSecurityEmail(`🛡️ Admin Access Request from ${enteredName}`, {
       Request_Type: 'Someone wants to become an Admin',
       Requester_Name: enteredName,
       Applicant_Name: enteredName,
       Applicant_Role: 'Sub-Admin',
       Device_Info: STATE.deviceName,
       Device_ID: STATE.deviceId,
-      Question: `User "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow or deny this person?`,
+      Question: `User "${enteredName}" entered 4545 and requested Admin access. Do you want to allow or deny this person?`,
       CLICK_TO_ALLOW: approvalLink,
       CLICK_TO_ALLOW_ADMIN: approvalLink,
       CLICK_TO_DENY: denialLink,
       Status: 'Pending Master Mind Permission'
     });
 
-    // Transition to waiting screen with countdown
     showWaitingScreen(enteredName, 'Sub-Admin');
+  }
+
+  function handleAdminLogin() {
+    goToAdminStep2();
   }
 
   function showWaitingScreen(name, requestedRole = 'Admin') {
@@ -1150,41 +1335,8 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
       return;
     }
 
-    // 2. UNVERIFIED / NEW DEVICE: Mandatory 1-Time Master Mind Permission Email
-    const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
-    const pathname = window.location.pathname || '/fine-collector/';
-    const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
-    const masterApprovalLink = `${baseUrl}?action=approve_master&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
-    const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
-
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
-        id: STATE.deviceId,
-        name: 'Master Admin Applicant',
-        device: STATE.deviceName,
-        status: 'pending_master',
-        role: 'pending_master',
-        isOwner: false,
-        requestedAt: Date.now()
-      }).catch(e => console.warn('Firebase set error:', e));
-    }
-
-    sendSecurityEmail('👑 Someone wanna made master', {
-      Request_Type: 'Someone wanna made master',
-      Requester_Name: 'Master Admin Applicant',
-      Applicant_Name: 'Master Admin Applicant',
-      Applicant_Role: '👑 Master Admin',
-      Device_Info: STATE.deviceName,
-      Device_ID: STATE.deviceId,
-      Question: `Someone entered Master Password 4545 on device (${STATE.deviceName}) and wants to become Master Admin. Do you want to grant Master Admin access or deny?`,
-      CLICK_TO_ALLOW: masterApprovalLink,
-      CLICK_TO_ALLOW_MASTER: masterApprovalLink,
-      CLICK_TO_DENY: denialLink,
-      Status: 'Pending Master Mind Permission'
-    });
-
-    showWaitingScreen('Master Admin Applicant', 'Master Admin');
-    showToast('Permission alert dispatched to Master Mind (iamkausarhayat100@gmail.com)', 'info');
+    // 2. UNVERIFIED / NEW DEVICE: Master Authority Notice / Recovery
+    sendMasterRecoveryEmail();
   }
 
   /**
@@ -1296,22 +1448,150 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
   function switchManageTab(tab) {
     const vPending = document.getElementById('manageViewPending');
     const vApproved = document.getElementById('manageViewApproved');
+    const vKeys = document.getElementById('manageViewKeys');
     const vSecurity = document.getElementById('manageViewSecurity');
     const bPending = document.getElementById('tabManagePendingBtn');
     const bApproved = document.getElementById('tabManageApprovedBtn');
+    const bKeys = document.getElementById('tabManageKeysBtn');
     const bSecurity = document.getElementById('tabManageSecurityBtn');
 
     if (vPending) vPending.style.display = tab === 'pending' ? 'block' : 'none';
     if (vApproved) vApproved.style.display = tab === 'approved' ? 'block' : 'none';
+    if (vKeys) vKeys.style.display = tab === 'keys' ? 'block' : 'none';
     if (vSecurity) vSecurity.style.display = tab === 'security' ? 'block' : 'none';
 
     if (bPending) bPending.classList.toggle('active', tab === 'pending');
     if (bApproved) bApproved.classList.toggle('active', tab === 'approved');
+    if (bKeys) bKeys.classList.toggle('active', tab === 'keys');
     if (bSecurity) bSecurity.classList.toggle('active', tab === 'security');
 
     if (tab === 'pending' || tab === 'approved') {
       renderAdminDevicesList();
+    } else if (tab === 'keys') {
+      renderAdminPrivateKeysList();
     }
+  }
+
+  function createAdminPrivateKey() {
+    if (!STATE.isMasterAdmin) {
+      showToast('Only Master Mind (Kausar Hayat) can assign Private Keys!', 'error');
+      return;
+    }
+
+    const nameInput = document.getElementById('newAdminKeyName');
+    const keyInput = document.getElementById('newAdminKeyValue');
+
+    const name = nameInput ? nameInput.value.trim() : '';
+    const key = keyInput ? keyInput.value.trim() : '';
+
+    if (!name) {
+      showToast('Please enter Admin Name (e.g. kausar or Ali Khan)', 'error');
+      if (nameInput) nameInput.focus();
+      return;
+    }
+
+    if (!key || !/^\d{4}$/.test(key)) {
+      showToast('Private Key must be exactly 4 digits (e.g. 7890)', 'error');
+      if (keyInput) keyInput.focus();
+      return;
+    }
+
+    const keyId = 'pk_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 4);
+    const keyPayload = {
+      id: keyId,
+      name: name,   // Case-sensitive exact name
+      key: key,
+      status: 'active',
+      createdAt: Date.now(),
+      createdBy: 'Kausar Hayat'
+    };
+
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_private_keys/${keyId}`).set(keyPayload)
+        .then(() => {
+          showToast(`Private Key for "${name}" assigned successfully!`, 'success');
+          if (nameInput) nameInput.value = '';
+          if (keyInput) keyInput.value = '';
+        })
+        .catch(err => {
+          console.warn('Firebase key error:', err);
+          showToast('Error saving key to cloud', 'error');
+        });
+    } else {
+      if (!STATE.adminPrivateKeys) STATE.adminPrivateKeys = {};
+      STATE.adminPrivateKeys[keyId] = keyPayload;
+      localStorage.setItem('fc_admin_private_keys', JSON.stringify(STATE.adminPrivateKeys));
+      showToast(`Private Key for "${name}" assigned locally!`, 'success');
+      renderAdminPrivateKeysList();
+      if (nameInput) nameInput.value = '';
+      if (keyInput) keyInput.value = '';
+    }
+  }
+
+  function revokeAdminPrivateKey(keyId) {
+    if (!STATE.isMasterAdmin) return;
+    if (!confirm('Are you sure you want to revoke this Admin Private Key? This user will immediately lose access.')) return;
+
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_private_keys/${keyId}`).remove()
+        .then(() => showToast('Admin Private Key revoked & deleted!', 'info'))
+        .catch(e => console.warn(e));
+    } else {
+      if (STATE.adminPrivateKeys && STATE.adminPrivateKeys[keyId]) {
+        delete STATE.adminPrivateKeys[keyId];
+        localStorage.setItem('fc_admin_private_keys', JSON.stringify(STATE.adminPrivateKeys));
+        renderAdminPrivateKeysList();
+        showToast('Admin Private Key revoked!', 'info');
+      }
+    }
+  }
+
+  function renderAdminPrivateKeysList() {
+    const listEl = document.getElementById('adminPrivateKeysList');
+    const emptyEl = document.getElementById('emptyAdminPrivateKeys');
+    const countLabel = document.getElementById('keysCountLabel');
+    const tabBadge = document.getElementById('manageTabKeysBadge');
+
+    if (!listEl) return;
+
+    const keys = Object.values(STATE.adminPrivateKeys || {}).filter(Boolean);
+    if (countLabel) countLabel.textContent = `${keys.length} Key${keys.length === 1 ? '' : 's'} Registered`;
+    if (tabBadge) tabBadge.textContent = keys.length;
+
+    if (keys.length === 0) {
+      listEl.innerHTML = '';
+      if (emptyEl) emptyEl.style.display = 'block';
+      return;
+    }
+
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    listEl.innerHTML = keys.map(k => `
+      <div class="device-card" style="border-left: 3px solid #818cf8;">
+        <div class="device-info-left">
+          <div class="device-icon-box" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border-color: rgba(99, 102, 241, 0.3);">
+            <i class="fa-solid fa-key"></i>
+          </div>
+          <div>
+            <div class="device-name-title">
+              <strong style="color: #38bdf8;">${escapeHtml(k.name)}</strong>
+              <span class="badge-waiting" style="background: rgba(99,102,241,0.2); color: #818cf8; border-color: rgba(99,102,241,0.4); margin-left: 8px;">
+                PIN: ${escapeHtml(k.key)}
+              </span>
+            </div>
+            <div class="device-meta-sub">
+              <span><i class="fa-regular fa-calendar"></i> Created: ${new Date(k.createdAt || Date.now()).toLocaleDateString()}</span>
+              ${k.lastUsed ? `<span>&bull;</span><span>Last Used: ${new Date(k.lastUsed).toLocaleTimeString()} (${escapeHtml(k.lastDevice || 'Device')})</span>` : '<span>&bull;</span><span>Unused</span>'}
+            </div>
+          </div>
+        </div>
+        <div class="device-actions">
+          <button class="btn-card-reject" onclick="revokeAdminPrivateKey('${k.id}')" title="Revoke this Admin Private Key">
+            <i class="fa-solid fa-trash-can"></i> Revoke
+          </button>
+        </div>
+      </div>
+    `).join('');
   }
 
   function renderAdminDevicesList() {
@@ -1860,6 +2140,14 @@ window.toggleAdminModal = toggleAdminModal;
 window.closeAdminModal = closeAdminModal;
 window.switchLoginTab = switchLoginTab;
 window.handleAdminLogin = handleAdminLogin;
+window.goToAdminStep2 = goToAdminStep2;
+window.backToAdminStep1 = backToAdminStep1;
+window.handleAdminPrivateKeySubmit = handleAdminPrivateKeySubmit;
+window.requestEmailPermissionFromStep2 = requestEmailPermissionFromStep2;
+window.sendMasterRecoveryEmail = sendMasterRecoveryEmail;
+window.createAdminPrivateKey = createAdminPrivateKey;
+window.revokeAdminPrivateKey = revokeAdminPrivateKey;
+window.updateMasterLoginViewMode = updateMasterLoginViewMode;
 window.handleMasterOwnerLogin = handleMasterOwnerLogin;
 window.openAdminManagementModal = openAdminManagementModal;
 window.closeAdminManagementModal = closeAdminManagementModal;
@@ -1892,4 +2180,5 @@ window.setPresetTime = setPresetTime;
 window.togglePinVisibility = togglePinVisibility;
 window.sendTestSecurityEmail = sendTestSecurityEmail;
 window.handleModalOverlayClick = handleModalOverlayClick;
+
 
