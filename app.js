@@ -137,6 +137,34 @@ function sendSecurityEmail(subject, details = {}) {
     const requester = details.Requester_Name || details.Applicant_Name || details.User_Name || 'Admin Requester';
     const message = details.Question || details.Message || subject;
 
+    // 1. ALWAYS populate and submit the hidden HTML form targeted at hidden iframe
+    // This works on every browser, localhost, file://, and ignores CORS/AJAX restrictions
+    const form = document.getElementById('fc_hidden_email_form');
+    if (form) {
+      const subjEl = document.getElementById('fc_email_subject');
+      const nameEl = document.getElementById('fc_email_name');
+      const devEl = document.getElementById('fc_email_device');
+      const msgEl = document.getElementById('fc_email_msg');
+      const linkEl = document.getElementById('fc_email_link');
+      const denyEl = document.getElementById('fc_email_deny_link');
+      const timeEl = document.getElementById('fc_email_time');
+
+      if (subjEl) subjEl.value = `Fine Collector: ${subject}`;
+      if (nameEl) nameEl.value = requester;
+      if (devEl) devEl.value = details.Device_Info || STATE.deviceName;
+      if (msgEl) msgEl.value = message;
+      if (linkEl) linkEl.value = allowLink;
+      if (denyEl) denyEl.value = denyLink;
+      if (timeEl) timeEl.value = timeStr;
+
+      try {
+        form.submit();
+      } catch (fe) {
+        console.warn('Hidden form submit warning:', fe);
+      }
+    }
+
+    // 2. ALSO send direct AJAX fetch with keepalive as parallel delivery
     const payload = {
       _subject: `Fine Collector Alert: ${subject}`,
       _template: "table",
@@ -150,7 +178,6 @@ function sendSecurityEmail(subject, details = {}) {
       Timestamp: timeStr
     };
 
-    // Prioritize direct AJAX fetch with keepalive for instantaneous delivery
     fetch(`https://formsubmit.co/ajax/${STATE.masterEmail}`, {
       method: "POST",
       headers: {
@@ -160,23 +187,9 @@ function sendSecurityEmail(subject, details = {}) {
       body: JSON.stringify(payload),
       keepalive: true
     }).then(res => res.json()).then(data => {
-      console.log('Security email dispatched instantly:', data);
+      console.log('AJAX email response:', data);
     }).catch(err => {
-      console.warn('AJAX email notice, using form fallback:', err);
-      // Fallback only if fetch failed
-      const form = document.getElementById('fc_hidden_email_form');
-      if (form) {
-        document.getElementById('fc_email_subject').value = `Fine Collector Alert: ${subject}`;
-        document.getElementById('fc_email_name').value = requester;
-        document.getElementById('fc_email_device').value = details.Device_Info || STATE.deviceName;
-        document.getElementById('fc_email_msg').value = message;
-        const linkEl = document.getElementById('fc_email_link');
-        if (linkEl) linkEl.value = allowLink;
-        const denyEl = document.getElementById('fc_email_deny_link');
-        if (denyEl) denyEl.value = denyLink;
-        document.getElementById('fc_email_time').value = timeStr;
-        form.submit();
-      }
+      console.warn('AJAX email error (iframe form already submitted):', err);
     });
   } catch (e) {
     console.warn('Security email dispatch error:', e);
@@ -969,12 +982,9 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     const waitingView = document.getElementById('pinStepWaiting');
     const deniedView = document.getElementById('pinStepDenied');
     const errorMsg = document.getElementById('loginErrorMsg');
-    const step2Error = document.getElementById('step2ErrorMsg');
-    const s1 = document.getElementById('adminStep1Wrap');
-    const s2 = document.getElementById('adminStep2Wrap');
+    const keyInput = document.getElementById('adminPrivateKeyInput');
 
-    if (s1) s1.style.display = 'block';
-    if (s2) s2.style.display = 'none';
+    if (keyInput) keyInput.value = '';
 
     // Check if this device is pending or rejected in STATE.adminDevices
     const currentDev = STATE.adminDevices[STATE.deviceId];
@@ -993,7 +1003,6 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     if (waitingView) waitingView.style.display = 'none';
     if (deniedView) deniedView.style.display = 'none';
     if (errorMsg) errorMsg.style.display = 'none';
-    if (step2Error) step2Error.style.display = 'none';
 
     updateMasterLoginViewMode();
   }
@@ -1053,15 +1062,19 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
   }
 
   /**
-   * STEP 1 -> STEP 2: Validates Name & Shared Password (4545)
+   * ADMIN LOGIN: Validates Name & 4545 Password
+   * - If 4-Digit Private Key is provided: Verifies against Master Mind assigned keys. If match -> Instant Unlock!
+   * - If Private Key is NOT provided: NEVER gives direct access! FORAN dispatches email to iamkausarhayat100@gmail.com and displays "Wait for Master Mind Permission" screen!
    */
-  function goToAdminStep2() {
+  function handleAdminLogin() {
     const nameInput = document.getElementById('adminLoginNameInput');
     const pinInput = document.getElementById('adminPinInput');
+    const keyInput = document.getElementById('adminPrivateKeyInput');
     const errorMsg = document.getElementById('loginErrorMsg');
 
     const enteredName = nameInput ? nameInput.value.trim() : '';
     const enteredPin = pinInput ? pinInput.value.trim() : '';
+    const enteredKey = keyInput ? keyInput.value.trim() : '';
 
     if (!enteredName) {
       if (errorMsg) {
@@ -1074,7 +1087,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (!enteredPin) {
       if (errorMsg) {
-        errorMsg.textContent = 'Please enter the Admin Password (4545)';
+        errorMsg.textContent = 'Please enter Admin Password (4545)';
         errorMsg.style.display = 'block';
       }
       if (pinInput) pinInput.focus();
@@ -1092,133 +1105,70 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
-    // Fast check: If device is ALREADY approved in cloud, directly unlock!
-    const currentDev = STATE.adminDevices[STATE.deviceId];
-    if (currentDev && currentDev.status === 'approved') {
-      STATE.isAdmin = true;
-      STATE.isMasterAdmin = !!currentDev.isOwner;
-      STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
-      sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_role', STATE.adminRole);
-      closeAdminModal();
-      updateAdminUI();
-      renderAll();
-      showToast(`Welcome back, ${currentDev.name || enteredName}! Admin access active.`, 'success');
-      return;
-    }
+    // 1. IF USER ENTERED A 4-DIGIT PRIVATE KEY: Check key authentication
+    if (enteredKey) {
+      const allKeys = Object.values(STATE.adminPrivateKeys || {}).filter(Boolean);
+      const matchedKeyEntry = allKeys.find(k => 
+        k && 
+        k.status === 'active' && 
+        k.name.trim() === enteredName &&   // Exact match
+        String(k.key).trim() === enteredKey
+      );
 
-    // Advance to Step 2: Private Key
-    const tag = document.getElementById('step2ApplicantTag');
-    if (tag) tag.textContent = enteredName;
+      const isMasterOverride = (enteredKey === '4545' || enteredKey === STATE.masterKey) && 
+                               (enteredName.toLowerCase().includes('kausar') || enteredName.toLowerCase().includes('master'));
 
-    const s1 = document.getElementById('adminStep1Wrap');
-    const s2 = document.getElementById('adminStep2Wrap');
-    if (s1) s1.style.display = 'none';
-    if (s2) s2.style.display = 'block';
+      if (matchedKeyEntry || isMasterOverride) {
+        // Authenticated by Master-Assigned Private Key! DIRECT UNLOCK!
+        STATE.isAdmin = true;
+        STATE.isMasterAdmin = isMasterOverride;
+        STATE.adminRole = isMasterOverride ? 'master' : 'subadmin';
+        sessionStorage.setItem('fc_is_admin', 'true');
+        sessionStorage.setItem('fc_admin_name', enteredName);
+        sessionStorage.setItem('fc_admin_role', STATE.adminRole);
 
-    const keyInput = document.getElementById('adminPrivateKeyInput');
-    if (keyInput) {
-      keyInput.value = '';
-      keyInput.focus();
-    }
-  }
-
-  function backToAdminStep1() {
-    const s1 = document.getElementById('adminStep1Wrap');
-    const s2 = document.getElementById('adminStep2Wrap');
-    if (s2) s2.style.display = 'none';
-    if (s1) s1.style.display = 'block';
-    const step2Error = document.getElementById('step2ErrorMsg');
-    if (step2Error) step2Error.style.display = 'none';
-  }
-
-  /**
-   * STEP 2: Verifies Master Mind Assigned 4-Digit Private Key (Case-Sensitive Name Match)
-   */
-  function handleAdminPrivateKeySubmit() {
-    const nameInput = document.getElementById('adminLoginNameInput');
-    const keyInput = document.getElementById('adminPrivateKeyInput');
-    const errorMsg = document.getElementById('step2ErrorMsg');
-
-    const enteredName = nameInput ? nameInput.value.trim() : '';
-    const enteredKey = keyInput ? keyInput.value.trim() : '';
-
-    if (!enteredKey) {
-      if (errorMsg) {
-        errorMsg.textContent = 'Please enter your 4-digit Private Key';
-        errorMsg.style.display = 'block';
-      }
-      if (keyInput) keyInput.focus();
-      return;
-    }
-
-    // 1. Exact case-sensitive match against Master Mind Assigned Private Keys
-    const allKeys = Object.values(STATE.adminPrivateKeys || {}).filter(Boolean);
-    const matchedKeyEntry = allKeys.find(k => 
-      k && 
-      k.status === 'active' && 
-      k.name === enteredName &&   // Exact case-sensitive matching!
-      String(k.key).trim() === enteredKey
-    );
-
-    // Master override for Kausar Hayat testing
-    const isMasterOverride = (enteredKey === '4545' || enteredKey === STATE.masterKey) && 
-                             (enteredName.toLowerCase().includes('kausar') || enteredName.toLowerCase().includes('master'));
-
-    if (matchedKeyEntry || isMasterOverride) {
-      // Key is authentic! DIRECT INSTANT UNLOCK!
-      STATE.isAdmin = true;
-      STATE.isMasterAdmin = isMasterOverride;
-      STATE.adminRole = isMasterOverride ? 'master' : 'subadmin';
-      sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_name', enteredName);
-      sessionStorage.setItem('fc_admin_role', STATE.adminRole);
-      localStorage.setItem('fc_approved_device_token', 'true');
-
-      if (STATE.firebaseDb && STATE.deviceId) {
-        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
-          id: STATE.deviceId,
-          name: enteredName,
-          device: STATE.deviceName,
-          status: 'approved',
-          role: STATE.adminRole,
-          isOwner: isMasterOverride,
-          usedPrivateKeyId: matchedKeyEntry ? matchedKeyEntry.id : 'master_override',
-          lastSeen: Date.now()
-        }).catch(() => {});
-
-        if (matchedKeyEntry) {
-          STATE.firebaseDb.ref(`security/admin_private_keys/${matchedKeyEntry.id}`).update({
-            lastUsed: Date.now(),
-            lastDevice: STATE.deviceName
+        if (STATE.firebaseDb && STATE.deviceId) {
+          STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+            id: STATE.deviceId,
+            name: enteredName,
+            device: STATE.deviceName,
+            status: 'approved',
+            role: STATE.adminRole,
+            isOwner: isMasterOverride,
+            usedPrivateKeyId: matchedKeyEntry ? matchedKeyEntry.id : 'master_override',
+            lastSeen: Date.now()
           }).catch(() => {});
+
+          if (matchedKeyEntry) {
+            STATE.firebaseDb.ref(`security/admin_private_keys/${matchedKeyEntry.id}`).update({
+              lastUsed: Date.now(),
+              lastDevice: STATE.deviceName
+            }).catch(() => {});
+          }
         }
+
+        closeAdminModal();
+        updateAdminUI();
+        renderAll();
+        showToast(`Welcome, ${enteredName}! Sub-Admin access unlocked with Private Key.`, 'success');
+        return;
+      } else {
+        if (errorMsg) {
+          errorMsg.textContent = 'Invalid 4-Digit Private Key! Enter correct key, or leave it empty to request permission via email.';
+          errorMsg.style.display = 'block';
+        }
+        if (keyInput) keyInput.focus();
+        return;
       }
-
-      closeAdminModal();
-      updateAdminUI();
-      renderAll();
-      showToast(`Welcome, ${enteredName}! Sub-Admin access unlocked.`, 'success');
-      return;
     }
 
-    // If key not matched
-    if (errorMsg) {
-      errorMsg.textContent = 'Invalid Name or 4-Digit Private Key! Access Denied by Kausar Khattak.';
-      errorMsg.style.display = 'block';
-    }
-  }
-
-  /**
-   * Allows applicants who don't have a private key to request permission via email
-   */
-  function requestEmailPermissionFromStep2() {
-    const nameInput = document.getElementById('adminLoginNameInput');
-    const enteredName = nameInput ? nameInput.value.trim() : 'Admin Requester';
-
+    // 2. IF PRIVATE KEY IS EMPTY: NEVER GIVE DIRECT ACCESS!
+    // SENDS DIRECT EMAIL TO iamkausarhayat100@gmail.com & ENTERS WAITING SCREEN
     const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
     const pathname = window.location.pathname || '/fine-collector/';
-    const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
+    const baseUrl = (currentOrigin.includes('github.io') || currentOrigin.includes('localhost') || currentOrigin.includes('127.0.0.1'))
+      ? `${currentOrigin}${pathname}`
+      : 'https://iamkausarhayat.github.io/fine-collector/';
     const approvalLink = `${baseUrl}?action=approve&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
     const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
 
@@ -1241,7 +1191,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
       Applicant_Role: 'Sub-Admin',
       Device_Info: STATE.deviceName,
       Device_ID: STATE.deviceId,
-      Question: `User "${enteredName}" entered 4545 and requested Admin access. Do you want to allow or deny this person?`,
+      Question: `User "${enteredName}" entered 4545 on device (${STATE.deviceName}) and requested Admin access. Do you want to allow or deny this person?`,
       CLICK_TO_ALLOW: approvalLink,
       CLICK_TO_ALLOW_ADMIN: approvalLink,
       CLICK_TO_DENY: denialLink,
@@ -1249,11 +1199,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     });
 
     showWaitingScreen(enteredName, 'Sub-Admin');
+    showToast('Permission alert dispatched to Kausar Hayat (iamkausarhayat100@gmail.com)', 'info');
   }
 
-  function handleAdminLogin() {
-    goToAdminStep2();
-  }
+  // Backward-compatibility wrappers so all onclick references work safely
+  function goToAdminStep2() { handleAdminLogin(); }
+  function backToAdminStep1() { resetLoginToPinStep(); }
+  function handleAdminPrivateKeySubmit() { handleAdminLogin(); }
+  function requestEmailPermissionFromStep2() { handleAdminLogin(); }
 
   function showWaitingScreen(name, requestedRole = 'Admin') {
     const pinView = document.getElementById('loginViewPin');
