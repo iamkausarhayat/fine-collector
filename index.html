@@ -326,8 +326,8 @@
               <input 
                 type="password" 
                 id="adminPinInput" 
-                maxlength="12" 
-                placeholder="Enter Admin PIN" 
+                maxlength="30" 
+                placeholder="Enter Admin PIN or Master Code (4545)" 
                 autocomplete="off"
                 onkeypress="if(event.key === 'Enter') handleAdminLogin()"
               >
@@ -429,7 +429,7 @@
                   <i class="fa-solid fa-eye" id="masterOwnerKeyEyeIcon"></i>
                 </button>
               </div>
-              <span class="input-helper">Default Passkey: <code>kausar@admin2026</code> (can be changed in Owner Settings).</span>
+              <span class="input-helper">Master Passkey: <code>4545</code></span>
             </div>
 
             <div id="masterLoginErrorMsg" class="error-msg" style="display: none;"></div>
@@ -564,7 +564,7 @@
 
         <div class="form-group mb-3">
           <label><i class="fa-solid fa-shield-halved"></i> Master Owner Passkey</label>
-          <input type="password" id="masterPasskeyForPinInput" placeholder="Enter Master Security Passkey (e.g. kausar@admin2026)">
+          <input type="password" id="masterPasskeyForPinInput" placeholder="Enter Master Security Passkey (e.g. 4545)">
         </div>
 
         <div class="form-group mb-3">

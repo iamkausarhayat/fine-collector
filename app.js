@@ -16,7 +16,7 @@ const STATE = {
   adminRole: 'guest',    // 'master' | 'subadmin' | 'guest'
   adminPin: '9922',      // Central Master PIN (synced via Firebase RTDB)
   masterEmail: 'iamkausarhayat@gmail.com',
-  masterKey: 'kausar@admin2026', // Secret Master Passkey for Kausar
+  masterKey: '4545',     // Secret Master Passkey for Kausar Hayat
   deviceId: '',
   deviceName: '',
   adminDevices: {},
@@ -777,6 +777,31 @@ function handleAdminLogin() {
       errorMsg.textContent = 'Please enter the Admin PIN';
       errorMsg.style.display = 'block';
     }
+    return;
+  }
+
+  // 1. Direct Master Owner Login via Master Code (4545)
+  if (enteredPin === STATE.masterKey || enteredPin === '4545') {
+    STATE.isAdmin = true;
+    STATE.isMasterAdmin = true;
+    STATE.adminRole = 'master';
+    localStorage.setItem('fc_is_master_owner', 'true');
+    sessionStorage.setItem('fc_is_admin', 'true');
+    sessionStorage.setItem('fc_admin_role', 'master');
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
+        id: STATE.deviceId,
+        name: 'Kausar Hayat (Master Owner)',
+        device: STATE.deviceName,
+        status: 'approved',
+        isOwner: true,
+        lastSeen: Date.now()
+      }).catch(e => console.warn(e));
+    }
+    closeAdminModal();
+    updateAdminUI();
+    renderAll();
+    showToast('Welcome Master Admin (Kausar Hayat)! Full access granted.', 'success');
     return;
   }
 

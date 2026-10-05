@@ -8,7 +8,7 @@ Fine tracking web app designed for managing late arrival records with multi-devi
 
 ### 👑 1. Master Admin (Owner)
 - **Primary Owner Email:** `iamkausarhayat@gmail.com`
-- **Master Security Passkey:** `kausar@admin2026` (Aap app ke andar se kabhi bhi badal sakte hain).
+- **Master Security Passkey / Code:** `4545` (Aap app ke andar se kabhi bhi badal sakte hain).
 - **Default Master PIN:** `9922`
 - **Master Rights:**
   - Sirf Kausar Hayat Master PIN change kar sakte hain.
@@ -32,9 +32,8 @@ Fine tracking web app designed for managing late arrival records with multi-devi
 
 ### 🔑 3. Kausar Hayat (Master Owner) Login Kaise Karein?
 1. App mein **"Admin Login"** button dabayein.
-2. Top tab mein **"👑 Master Owner (Kausar)"** par click karein.
-3. Master Security Passkey enter karein: `kausar@admin2026`
-4. **"Verify as Master Admin"** dabayein. Bas! Aapka device permanent Master Owner ban jayega.
+2. Aap direct PIN wale box mein bhi **`4545`** daal kar Enter kar sakte hain, ya **"👑 Master Owner (Kausar)"** tab mein **`4545`** daal sakte hain.
+3. Bas! Aapka device permanent Master Owner ban jayega.
 
 ---
 
