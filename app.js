@@ -1010,19 +1010,8 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
   function updateMasterLoginViewMode() {
     const formCard = document.getElementById('masterLoginFormCard');
     const noticeCard = document.getElementById('masterReservedNotice');
-    if (!formCard || !noticeCard) return;
-
-    const isLocalMaster = localStorage.getItem('fc_is_master_owner') === 'true';
-    const currentDev = STATE.adminDevices[STATE.deviceId];
-    const isApprovedMaster = (currentDev && currentDev.isOwner === true && currentDev.status === 'approved') || isLocalMaster;
-
-    if (isApprovedMaster) {
-      formCard.style.display = 'block';
-      noticeCard.style.display = 'none';
-    } else {
-      formCard.style.display = 'none';
-      noticeCard.style.display = 'block';
-    }
+    if (formCard) formCard.style.display = 'block';
+    if (noticeCard) noticeCard.style.display = 'none';
   }
 
   function sendMasterRecoveryEmail() {
@@ -1239,6 +1228,9 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
   /**
    * Direct Master Owner Login (Kausar Hayat) with Master Passkey
    */
+  /**
+   * Direct Master Owner Login (Kausar Hayat) with Secret Master Code (1255)
+   */
   function handleMasterOwnerLogin() {
     const keyInput = document.getElementById('masterOwnerKeyInput');
     const errorMsg = document.getElementById('masterLoginErrorMsg');
@@ -1249,47 +1241,47 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
         errorMsg.textContent = 'Please enter Master Password';
         errorMsg.style.display = 'block';
       }
+      if (keyInput) keyInput.focus();
       return;
     }
 
-    if (enteredKey !== STATE.masterKey && enteredKey !== '4545') {
-      if (errorMsg) {
-        errorMsg.textContent = 'Invalid Master Password! Access denied.';
-        errorMsg.style.display = 'block';
-      }
-      return;
-    }
+    // Secret Master Mind Code: 1255
+    if (enteredKey === '1255') {
+      if (errorMsg) errorMsg.style.display = 'none';
 
-    if (errorMsg) errorMsg.style.display = 'none';
-
-    // 1. FAST-LANE LOGIN: If this device is ALREADY verified as Master in cloud or localStorage:
-    // DIRECT LOGIN IMMEDIATELY! NO EMAIL WAIT!
-    const currentDev = STATE.adminDevices[STATE.deviceId];
-    const isApprovedMaster = (currentDev && currentDev.isOwner === true && currentDev.status === 'approved') ||
-                             (localStorage.getItem('fc_is_master_owner') === 'true' && currentDev && currentDev.status !== 'rejected' && currentDev.status !== 'revoked');
-
-    if (isApprovedMaster) {
       STATE.isAdmin = true;
       STATE.isMasterAdmin = true;
       STATE.adminRole = 'master';
       localStorage.setItem('fc_is_master_owner', 'true');
       sessionStorage.setItem('fc_is_admin', 'true');
+      sessionStorage.setItem('fc_admin_name', 'Kausar Hayat');
       sessionStorage.setItem('fc_admin_role', 'master');
+
+      if (STATE.firebaseDb && STATE.deviceId) {
+        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+          id: STATE.deviceId,
+          name: 'Kausar Hayat (Master Mind)',
+          device: STATE.deviceName,
+          status: 'approved',
+          role: 'master',
+          isOwner: true,
+          lastSeen: Date.now()
+        }).catch(() => {});
+      }
 
       closeAdminModal();
       updateAdminUI();
       renderAll();
-      showToast('👑 Welcome back Master Admin (Kausar Hayat)! Full access active.', 'success');
+      showToast('👑 Welcome Master Mind (Kausar Hayat)! Full access unlocked.', 'success');
       return;
     }
 
-    if (currentDev && (currentDev.status === 'rejected' || currentDev.status === 'revoked')) {
-      showDenialScreen('You are denied by Kausar Khattak');
-      return;
+    // Any other code is strictly rejected
+    if (errorMsg) {
+      errorMsg.textContent = 'Invalid Master Password! Access denied.';
+      errorMsg.style.display = 'block';
     }
-
-    // 2. UNVERIFIED / NEW DEVICE: Master Authority Notice / Recovery
-    sendMasterRecoveryEmail();
+    if (keyInput) keyInput.focus();
   }
 
   /**
