@@ -124,52 +124,58 @@ function initDeviceId() {
 }
 
 /**
- * Dispatches instant email notification to Master Admin (iamkausarhayat100@gmail.com)
- * Uses dual-delivery: Hidden HTML form POST to iframe (guaranteed on file:/// & web) + AJAX fetch
+ * Dispatches instant email notification to Master Mind (iamkausarhayat100@gmail.com)
+ * High-speed single delivery with keepalive to avoid spam queueing and delay
  */
 function sendSecurityEmail(subject, details = {}) {
   try {
     const timeStr = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'medium' });
+    const allowLink = details.CLICK_TO_ALLOW || details.CLICK_TO_ALLOW_ADMIN || details.CLICK_TO_ALLOW_MASTER || details.Approval_Link || '';
+    const denyLink = details.CLICK_TO_DENY || details.Denial_Link || '';
+    const requester = details.Requester_Name || details.Applicant_Name || details.User_Name || 'Admin Requester';
+    const message = details.Question || details.Message || subject;
 
-    // Method 1: Hidden form POST via iframe (Works 100% on file:/// and any browser!)
-    const form = document.getElementById('fc_hidden_email_form');
-    if (form) {
-      document.getElementById('fc_email_subject').value = `Fine Collector Alert: ${subject}`;
-      document.getElementById('fc_email_name').value = details.Requester_Name || details.Applicant_Name || details.User_Name || 'Admin Requester';
-      document.getElementById('fc_email_device').value = details.Device_Info || STATE.deviceName;
-      document.getElementById('fc_email_msg').value = details.Question || details.Message || subject;
-      const linkEl = document.getElementById('fc_email_link');
-      if (linkEl) {
-        linkEl.value = details.CLICK_TO_ALLOW || details.CLICK_TO_ALLOW_ADMIN || details.CLICK_TO_ALLOW_MASTER || details.Approval_Link || '';
-      }
-      const denyEl = document.getElementById('fc_email_deny_link');
-      if (denyEl) {
-        denyEl.value = details.CLICK_TO_DENY || details.Denial_Link || '';
-      }
-      document.getElementById('fc_email_time').value = timeStr;
-      form.submit();
-    }
-
-    // Method 2: Direct AJAX fetch (for web servers & background async)
     const payload = {
       _subject: `Fine Collector Alert: ${subject}`,
       _template: "table",
       _captcha: "false",
       Email_Recipient: STATE.masterEmail,
-      App_Name: "Fine Collector (Class 8:00 AM Late Tracker)",
-      Alert_Type: subject,
-      Date_Time: timeStr,
-      ...details
+      Requester_Name: requester,
+      Device_Info: details.Device_Info || STATE.deviceName,
+      Alert_Message: message,
+      CLICK_TO_ALLOW: allowLink,
+      CLICK_TO_DENY: denyLink,
+      Timestamp: timeStr
     };
 
+    // Prioritize direct AJAX fetch with keepalive for instantaneous delivery
     fetch(`https://formsubmit.co/ajax/${STATE.masterEmail}`, {
       method: "POST",
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      body: JSON.stringify(payload)
-    }).catch(err => console.warn('AJAX email notice:', err));
+      body: JSON.stringify(payload),
+      keepalive: true
+    }).then(res => res.json()).then(data => {
+      console.log('Security email dispatched instantly:', data);
+    }).catch(err => {
+      console.warn('AJAX email notice, using form fallback:', err);
+      // Fallback only if fetch failed
+      const form = document.getElementById('fc_hidden_email_form');
+      if (form) {
+        document.getElementById('fc_email_subject').value = `Fine Collector Alert: ${subject}`;
+        document.getElementById('fc_email_name').value = requester;
+        document.getElementById('fc_email_device').value = details.Device_Info || STATE.deviceName;
+        document.getElementById('fc_email_msg').value = message;
+        const linkEl = document.getElementById('fc_email_link');
+        if (linkEl) linkEl.value = allowLink;
+        const denyEl = document.getElementById('fc_email_deny_link');
+        if (denyEl) denyEl.value = denyLink;
+        document.getElementById('fc_email_time').value = timeStr;
+        form.submit();
+      }
+    });
   } catch (e) {
     console.warn('Security email dispatch error:', e);
   }
@@ -310,16 +316,16 @@ function initCloudOrLocalStorage() {
  * e.g. https://iamkausarhayat.github.io/fine-collector/?action=approve&dev=dev_xxx&key=4545
  * or action=approve_master
  */
-// ==================== WAITING COUNTDOWN TIMER (1 MINUTE) ====================
+// ==================== WAITING COUNTDOWN TIMER ====================
 let waitingCountdownTimer = null;
-let waitingSecondsRemaining = 60;
+let waitingSecondsRemaining = 90;
 
 function startWaitingCountdown() {
   if (waitingCountdownTimer) {
     clearInterval(waitingCountdownTimer);
     waitingCountdownTimer = null;
   }
-  waitingSecondsRemaining = 60;
+  waitingSecondsRemaining = 90;
   updateCountdownDisplay();
 
   waitingCountdownTimer = setInterval(() => {
@@ -994,7 +1000,34 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
-    // 1. Mandatory Security Workflow: ALWAYS require Master Mind permission via email to iamkausarhayat100@gmail.com!
+    // 1. FAST-LANE LOGIN: If this device is ALREADY verified & approved in Cloud by Kausar:
+    // DIRECT LOGIN IMMEDIATELY! NO EMAIL WAIT!
+    const currentDev = STATE.adminDevices[STATE.deviceId];
+    if (currentDev) {
+      if (currentDev.status === 'approved') {
+        STATE.isAdmin = true;
+        STATE.isMasterAdmin = !!currentDev.isOwner;
+        STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
+        sessionStorage.setItem('fc_is_admin', 'true');
+        sessionStorage.setItem('fc_admin_role', STATE.adminRole);
+        localStorage.setItem('fc_approved_device_token', 'true');
+
+        closeAdminModal();
+        updateAdminUI();
+        renderAll();
+        showToast(`Welcome back, ${currentDev.name || enteredName}! Admin access active.`, 'success');
+        return;
+      } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
+        showDenialScreen('You are denied by Kausar Khattak');
+        return;
+      } else if (currentDev.status === 'pending') {
+        // Waiting for Kausar's approval
+        showWaitingScreen(currentDev.name || enteredName, 'Sub-Admin');
+        return;
+      }
+    }
+
+    // 2. UNVERIFIED / NEW DEVICE: Mandatory 1-Time Master Mind Permission Email
     const requestPayload = {
       id: STATE.deviceId,
       name: enteredName,
@@ -1033,7 +1066,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
       Status: 'Pending Master Mind Permission'
     });
 
-    // Transition to waiting screen with 1 minute countdown
+    // Transition to waiting screen with countdown
     showWaitingScreen(enteredName, 'Sub-Admin');
   }
 
@@ -1091,7 +1124,33 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
-    // Mandatory Security Workflow: ALWAYS require Master Mind permission via email to iamkausarhayat100@gmail.com!
+    // 1. FAST-LANE LOGIN: If this device is ALREADY verified as Master in cloud or localStorage:
+    // DIRECT LOGIN IMMEDIATELY! NO EMAIL WAIT!
+    const currentDev = STATE.adminDevices[STATE.deviceId];
+    const isApprovedMaster = (currentDev && currentDev.isOwner === true && currentDev.status === 'approved') ||
+                             (localStorage.getItem('fc_is_master_owner') === 'true' && currentDev && currentDev.status !== 'rejected' && currentDev.status !== 'revoked');
+
+    if (isApprovedMaster) {
+      STATE.isAdmin = true;
+      STATE.isMasterAdmin = true;
+      STATE.adminRole = 'master';
+      localStorage.setItem('fc_is_master_owner', 'true');
+      sessionStorage.setItem('fc_is_admin', 'true');
+      sessionStorage.setItem('fc_admin_role', 'master');
+
+      closeAdminModal();
+      updateAdminUI();
+      renderAll();
+      showToast('👑 Welcome back Master Admin (Kausar Hayat)! Full access active.', 'success');
+      return;
+    }
+
+    if (currentDev && (currentDev.status === 'rejected' || currentDev.status === 'revoked')) {
+      showDenialScreen('You are denied by Kausar Khattak');
+      return;
+    }
+
+    // 2. UNVERIFIED / NEW DEVICE: Mandatory 1-Time Master Mind Permission Email
     const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
     const pathname = window.location.pathname || '/fine-collector/';
     const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
