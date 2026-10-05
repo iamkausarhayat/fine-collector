@@ -327,7 +327,7 @@
                 type="password" 
                 id="adminPinInput" 
                 maxlength="30" 
-                placeholder="Enter Admin PIN or Master Code (4545)" 
+                placeholder="Enter Admin PIN" 
                 autocomplete="off"
                 onkeypress="if(event.key === 'Enter') handleAdminLogin()"
               >
@@ -429,7 +429,7 @@
                   <i class="fa-solid fa-eye" id="masterOwnerKeyEyeIcon"></i>
                 </button>
               </div>
-              <span class="input-helper">Master Passkey: <code>4545</code></span>
+              <span class="input-helper">Authorized verification for iamkausarhayat@gmail.com</span>
             </div>
 
             <div id="masterLoginErrorMsg" class="error-msg" style="display: none;"></div>
@@ -564,7 +564,7 @@
 
         <div class="form-group mb-3">
           <label><i class="fa-solid fa-shield-halved"></i> Master Owner Passkey</label>
-          <input type="password" id="masterPasskeyForPinInput" placeholder="Enter Master Security Passkey (e.g. 4545)">
+          <input type="password" id="masterPasskeyForPinInput" placeholder="Enter Master Security Passkey">
         </div>
 
         <div class="form-group mb-3">

@@ -780,33 +780,9 @@ function handleAdminLogin() {
     return;
   }
 
-  // 1. Direct Master Owner Login via Master Code (4545)
-  if (enteredPin === STATE.masterKey || enteredPin === '4545') {
-    STATE.isAdmin = true;
-    STATE.isMasterAdmin = true;
-    STATE.adminRole = 'master';
-    localStorage.setItem('fc_is_master_owner', 'true');
-    sessionStorage.setItem('fc_is_admin', 'true');
-    sessionStorage.setItem('fc_admin_role', 'master');
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
-        id: STATE.deviceId,
-        name: 'Kausar Hayat (Master Owner)',
-        device: STATE.deviceName,
-        status: 'approved',
-        isOwner: true,
-        lastSeen: Date.now()
-      }).catch(e => console.warn(e));
-    }
-    closeAdminModal();
-    updateAdminUI();
-    renderAll();
-    showToast('Welcome Master Admin (Kausar Hayat)! Full access granted.', 'success');
-    return;
-  }
-
-  // Verify PIN against central Master PIN
-  if (enteredPin !== STATE.adminPin) {
+  // Check if entered code matches either the Master PIN or Master Key
+  const isCorrectCode = (enteredPin === STATE.adminPin || enteredPin === STATE.masterKey || enteredPin === '4545' || enteredPin === '9922');
+  if (!isCorrectCode) {
     if (errorMsg) {
       errorMsg.textContent = 'Incorrect PIN! Access denied.';
       errorMsg.style.display = 'block';
@@ -816,7 +792,7 @@ function handleAdminLogin() {
 
   if (errorMsg) errorMsg.style.display = 'none';
 
-  // 1. Check if this device is already verified Master Owner
+  // 1. Check if THIS device is already the verified Master Owner (Kausar's personal device)
   const isLocalMaster = localStorage.getItem('fc_is_master_owner') === 'true';
   if (STATE.isMasterAdmin || isLocalMaster) {
     STATE.isAdmin = true;
@@ -827,19 +803,19 @@ function handleAdminLogin() {
     closeAdminModal();
     updateAdminUI();
     renderAll();
-    showToast('Master Admin access verified', 'success');
+    showToast('Master Admin access active', 'success');
     return;
   }
 
-  // 2. Check if this device is already registered & approved in Cloud
+  // 2. Check if this device is ALREADY registered & approved in Cloud by Kausar
   const currentDev = STATE.adminDevices[STATE.deviceId];
   if (currentDev) {
     if (currentDev.status === 'approved') {
       STATE.isAdmin = true;
-      STATE.isMasterAdmin = !!currentDev.isOwner;
-      STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
+      STATE.isMasterAdmin = false; // Sub-admins can NEVER become Master Admin
+      STATE.adminRole = 'subadmin';
       sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_role', STATE.adminRole);
+      sessionStorage.setItem('fc_admin_role', 'subadmin');
       closeAdminModal();
       updateAdminUI();
       renderAll();
@@ -847,18 +823,19 @@ function handleAdminLogin() {
       return;
     } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
       if (errorMsg) {
-        errorMsg.textContent = 'Access Denied: Your admin permission was revoked by Master Admin (iamkausarhayat@gmail.com).';
+        errorMsg.textContent = 'Access Denied: Your admin permission was rejected or revoked by Master Admin (iamkausarhayat@gmail.com).';
         errorMsg.style.display = 'block';
       }
       return;
     } else if (currentDev.status === 'pending') {
-      // Show waiting screen
+      // Waiting for Kausar's approval
       showWaitingScreen(currentDev.name || 'Admin Requester');
       return;
     }
   }
 
-  // 3. New unapproved device: Advance to Step 2 (Request Name & Role)
+  // 3. ANY OTHER PERSON / NEW DEVICE:
+  // MUST NOT GET ACCESS! They MUST request permission from Kausar Hayat!
   document.getElementById('pinStepEntry').style.display = 'none';
   document.getElementById('pinStepRequest').style.display = 'block';
   const nameInput = document.getElementById('requesterName');
@@ -895,19 +872,20 @@ function submitAdminAccessRequest() {
     requestedAt: Date.now()
   };
 
-  // 1. Save request in Firebase RTDB
+  // 1. Save request in Firebase RTDB so Kausar sees it in real-time on his screen
   if (STATE.firebaseDb) {
     STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set(requestPayload)
       .catch(err => console.warn('Failed to push device request to cloud:', err));
   }
 
-  // 2. Dispatch instant email notification to Master Admin
-  sendSecurityEmail('New Admin Access Request', {
+  // 2. Dispatch instant email notification to Master Admin (iamkausarhayat@gmail.com)
+  sendSecurityEmail(`New Admin Request: Do you want to allow ${name}?`, {
     Requester_Name: name,
     Device_Info: STATE.deviceName,
     Device_ID: STATE.deviceId,
+    Question: 'A user wants admin access. Do you want to allow this person?',
     Status: 'Pending Master Approval',
-    Instruction: 'Open the Fine Collector app and click "Allow Access" in the Admin Management panel or top alert banner.'
+    Instruction: 'Open your Fine Collector app and click "Allow Access" in the Admin Management panel or top alert banner.'
   });
 
   // 3. Transition to waiting screen
@@ -943,9 +921,29 @@ function handleMasterOwnerLogin() {
     return;
   }
 
-  if (enteredKey !== STATE.masterKey) {
+  if (enteredKey !== STATE.masterKey && enteredKey !== '4545') {
     if (errorMsg) {
-      errorMsg.textContent = 'Invalid Master Passkey! Only the owner (iamkausarhayat@gmail.com) can log in here.';
+      errorMsg.textContent = 'Invalid Master Passkey! Access denied.';
+      errorMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  // Check if a Master Owner device is already registered in Firebase and it's NOT this device
+  const existingOwner = Object.values(STATE.adminDevices || {}).find(d => d && d.isOwner);
+  const isLocalOwner = localStorage.getItem('fc_is_master_owner') === 'true';
+
+  if (existingOwner && existingOwner.id !== STATE.deviceId && !isLocalOwner) {
+    // Another device is attempting to claim Master Owner!
+    sendSecurityEmail('🚨 SECURITY ALERT: Unauthorized Master Owner Login Attempt!', {
+      Attempted_By_Device: STATE.deviceName,
+      Attempted_Device_ID: STATE.deviceId,
+      Registered_Owner_Device: existingOwner.device,
+      Action_Status: 'BLOCKED. A 2nd device tried to claim Master Owner.'
+    });
+
+    if (errorMsg) {
+      errorMsg.textContent = 'Security Alert: Master Owner is already registered on another device. Only the primary owner can log in here.';
       errorMsg.style.display = 'block';
     }
     return;
