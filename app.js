@@ -34,8 +34,81 @@ const STATE = {
   isCloudConnected: false
 };
 
+/* ==================== THEME MANAGEMENT (LIGHT / DARK) ==================== */
+const THEME_KEY = 'fc_theme';
+
+function getCurrentTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  // Default is 'light' as requested by the user
+  if (saved === 'dark' || saved === 'light') {
+    return saved;
+  }
+  return 'light';
+}
+
+function applyTheme(theme) {
+  const isDark = (theme === 'dark');
+  if (document.body) {
+    if (isDark) {
+      document.body.classList.remove('theme-light');
+      document.body.classList.add('theme-dark');
+    } else {
+      document.body.classList.remove('theme-dark');
+      document.body.classList.add('theme-light');
+    }
+  }
+
+  const toggleIcon = document.getElementById('themeToggleIcon');
+  if (toggleIcon) {
+    if (isDark) {
+      toggleIcon.className = 'fa-solid fa-sun';
+    } else {
+      toggleIcon.className = 'fa-solid fa-moon';
+    }
+  }
+
+  const toggleBtn = document.getElementById('themeToggleBtn');
+  if (toggleBtn) {
+    const titleText = isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+    toggleBtn.setAttribute('title', titleText);
+    toggleBtn.setAttribute('aria-label', titleText);
+  }
+}
+
+function toggleTheme() {
+  const current = getCurrentTheme();
+  const next = current === 'dark' ? 'light' : 'dark';
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (e) {
+    console.warn('LocalStorage error saving theme:', e);
+  }
+  applyTheme(next);
+  if (typeof showToast === 'function') {
+    showToast(`${next === 'dark' ? 'Dark' : 'Light'} Mode active`, 'info');
+  }
+}
+
+// Bind to window for HTML button onclick
+window.toggleTheme = toggleTheme;
+window.applyTheme = applyTheme;
+window.getCurrentTheme = getCurrentTheme;
+
+// Apply immediately on script execution to prevent flash of wrong theme
+(function() {
+  const initialTheme = getCurrentTheme();
+  if (document.body) {
+    applyTheme(initialTheme);
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      applyTheme(initialTheme);
+    });
+  }
+})();
+
 // Initialize app when DOM is fully loaded
 document.addEventListener('DOMContentLoaded', () => {
+  applyTheme(getCurrentTheme());
   initDeviceId();
   loadAdminState();
   initDateInput();

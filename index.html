@@ -18,7 +18,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 
-  <link rel="stylesheet" href="style.css?v=20261005_1708">
+  <link rel="stylesheet" href="style.css?v=20261005_2100">
 </head>
 <body>
 
@@ -41,6 +41,11 @@
       </div>
 
       <div class="header-actions">
+        <!-- Theme Toggle Button (Light/Dark) -->
+        <button class="btn btn-theme-toggle" id="themeToggleBtn" onclick="toggleTheme()" title="Switch Light/Dark Mode" aria-label="Toggle Theme">
+          <i class="fa-solid fa-moon" id="themeToggleIcon"></i>
+        </button>
+
         <!-- Admin Login / Mode Toggle -->
         <button class="btn btn-admin" id="adminToggleBtn" onclick="toggleAdminModal()">
           <i class="fa-solid fa-shield-halved"></i>
@@ -776,6 +781,6 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- App Script with cache-busting version -->
-  <script src="app.js?v=20261005_2025"></script>
+  <script src="app.js?v=20261005_2100"></script>
 </body>
 </html>
