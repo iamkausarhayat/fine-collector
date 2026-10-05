@@ -1,65 +1,51 @@
 # 💰 Fine Collector - Class 8:00 AM Late Tracker
 
-Yeh web app aap aur aapke dost ke liye banayi gayi hai taake aap 8:00 AM class ke late aane wale students ka fine (Rs. 100) asaani se manage aur track kar sakein.
+Fine tracking web app designed for managing late arrival records with multi-device synchronization and high-security Master Admin controls.
 
 ---
 
-## 🌟 Main Features:
+## 🔐 Master Admin & Multi-Device Security Architecture
 
-1. **Top Summary Cards (Sab ke liye visible):**
-   - **Total Collected:** Total kitne paise jama ho chuke hain (Green).
-   - **Pending Fine:** Kitne paise baqi hain (Red).
-   - **Total Late Students:** Kitne students late aaye (aur aaj kitne aaye).
-
-2. **8:10+ AM Rule:**
-   - 8:00 AM se 8:10 AM ke darmiyan exact time likhein (e.g. 8:03 AM).
-   - 10 minute ke baad aane walon ke liye **"8:10+ AM"** ka quick button dabayein.
-
-3. **Admin vs Student Permissions:**
-   - **Students (Public Link):** Sirf dekh sakte hain (Read-Only). Koi student data chhed ya badal nahi sakta.
-   - **Admin (Aap aur Aapka Dost):** Secret PIN daal kar login honge. Entry add kar sakte hain, paise aane par **Tick Mark (Paid)** kar sakte hain, edit ya delete kar sakte hain.
-   - **Default Admin PIN:** `8000` (aap app ke andar se kabhi bhi badal sakte hain).
-
-4. **WhatsApp Direct Share Button:**
-   - Ek click par Mam aur class group ke liye auto-formatted WhatsApp summary report generate hoti hai jismein link bhi shamil hota hai!
+### 👑 1. Master Admin (Owner)
+- **Primary Owner Email:** `iamkausarhayat@gmail.com`
+- **Master Security Passkey:** `kausar@admin2026` (Aap app ke andar se kabhi bhi badal sakte hain).
+- **Default Master PIN:** `9922`
+- **Master Rights:**
+  - Sirf Kausar Hayat Master PIN change kar sakte hain.
+  - Kisi bhi new mobile ya computer se aane wale admin ko **"Allow (Approve)"** ya **"Reject"** kar sakte hain.
+  - Kisi bhi pehle se approved admin ko kabhi bhi **"Revoke / Remove"** karke foran bahar nikaal sakte hain.
+  - Har new admin request aur unauthorized PIN change attempt ka email alert foran `iamkausarhayat@gmail.com` par receive hota hai.
 
 ---
 
-## 🚀 1. Apne Computer Par Abhi Test Kaise Karein?
-
-Aap simply `index.html` file par double click karke kisi bhi browser (Chrome, Edge) mein open kar sakte hain, ya VS Code Live Server use kar sakte hain.
-
----
-
-## 🌐 2. 24/7 Free Online Host Kaise Karein? (Taake PC band hone par bhi chale)
-
-Aapko apna computer on rakhne ki bilkul zaroorat nahi hai. Aap ise **Vercel** ya **GitHub Pages** par 100% free upload kar sakte hain:
-
-### Option A: Vercel (Sab se aasan tareeqa - 1 Minute)
-1. [Vercel.com](https://vercel.com) par free account banayein.
-2. "Add New Project" par click karein aur is folder (`money collect`) ko drag & drop karein ya GitHub se connect karein.
-3. Vercel aapko ek free link de dega (jaise `https://fine-collector.vercel.app`).
-4. Yeh link WhatsApp class group mein share kar dein!
+### 🛡️ 2. Sub-Admin (Co-Admin / CR) Permissions
+- Jab aap kisi dost ko Master PIN batayenge:
+  1. Wo apne mobile/laptop par PIN daalega.
+  2. Foran login nahi hoga! Screen par aayega: *"Admin PIN Verified! Enter your name to request Master Admin approval"*.
+  3. Wo apna naam likh kar request bhejega.
+  4. Aapke mobile par **Real-time Alert Banner** aayega aur aapke email (`iamkausarhayat@gmail.com`) par foran notification aayegi.
+  5. Jab aap **"Allow Access"** dabayenge, tabhi us bande ka device foran unlock hoga!
+  6. Sub-admin late entry add kar sakta hai aur payment tick kar sakta hai, lekin **wo Master PIN change NAHI kar sakta**, na hi dusre admins ko approve kar sakta hai.
+  7. Agar sub-admin PIN change karne ki koshish karega, toh system foran block karega aur aapko alert email bhej dega!
 
 ---
 
-## ☁️ 3. Real-Time Cloud Database (Google Firebase) - 100% Free
+### 🔑 3. Kausar Hayat (Master Owner) Login Kaise Karein?
+1. App mein **"Admin Login"** button dabayein.
+2. Top tab mein **"👑 Master Owner (Kausar)"** par click karein.
+3. Master Security Passkey enter karein: `kausar@admin2026`
+4. **"Verify as Master Admin"** dabayein. Bas! Aapka device permanent Master Owner ban jayega.
 
-Jab aap aur aapka dost alag alag mobile phones se entry ya tick karenge, toh data Google Firebase ke zariye real-time sync hoga:
+---
 
-1. [Firebase Console](https://console.firebase.google.com) par jayein (Apni Gmail se login karein).
-2. "Add Project" click karein aur naam rakhein (e.g. `fine-collector`).
-3. Left menu se **Build > Realtime Database** par click karein aur **"Create Database"** dabayein.
-4. **Rules** tab mein ja kar yeh rules set karein:
-   ```json
-   {
-     "rules": {
-       ".read": true,
-       ".write": true
-     }
-   }
-   ```
-5. Realtime Database ka URL copy karein (jaise `https://fine-collector-default-rtdb.firebaseio.com`).
-6. App ke andar **Admin Login** karein > **"Cloud DB"** button dabayein > Database URL paste karke **"Connect Cloud Database"** par click karein!
+### 📱 4. Authorized Admins Ko Manage Aur Remove Kaise Karein?
+1. Master Admin login karne ke baad top bar mein **"Manage Admins"** button dabayein.
+2. **Pending Requests Tab:** Yahan new requests dikhengi jinhein aap ek click par **"Allow Access"** ya **"Reject"** kar sakte hain.
+3. **Approved Admins Tab:** Yahan active sub-admins ki list dikhegi. Kisi ko bhi nikaalne ke liye **"Revoke / Remove"** dabayein — wo banda usi second logout ho jayega!
+4. **Security & Alerts Tab:** Yahan aap apna Master Passkey badal sakte hain aur email notification test kar sakte hain.
 
-Bas! Ab aapka computer 24 ghante band bhi rahega, tab bhi data 100% live cloud par rahega aur sabhi students ko har waqt dikhega.
+---
+
+## ☁️ Cloud Sync (Google Firebase)
+Master PIN aur Admin Devices Google Firebase Realtime Database se live connected hain. Jab aap Master PIN badalte hain, toh woh sabhi devices par usi second automatically update ho jata hai!
+

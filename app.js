@@ -12,7 +12,16 @@ const DEFAULT_FIREBASE_DB_URL = "https://fine-collector-default-rtdb.firebaseio.
 const STATE = {
   students: [],
   isAdmin: false,
-  adminPin: '9922', // Default Master PIN
+  isMasterAdmin: false,  // True only for owner (iamkausarhayat@gmail.com)
+  adminRole: 'guest',    // 'master' | 'subadmin' | 'guest'
+  adminPin: '9922',      // Central Master PIN (synced via Firebase RTDB)
+  masterEmail: 'iamkausarhayat@gmail.com',
+  masterKey: 'kausar@admin2026', // Secret Master Passkey for Kausar
+  deviceId: '',
+  deviceName: '',
+  adminDevices: {},
+  pendingLogin: false,
+  pendingDeviceIdToApprove: null,
   currentFilter: {
     search: '',
     date: 'all',    // Default to 'all' so records are never hidden accidentally
@@ -25,6 +34,7 @@ const STATE = {
 
 // Initialize app when DOM is fully loaded
 document.addEventListener('DOMContentLoaded', () => {
+  initDeviceId();
   loadAdminState();
   initDateInput();
   initCloudOrLocalStorage();
@@ -70,6 +80,83 @@ function initDateInput() {
   if (entryDate) entryDate.value = today;
 }
 
+/* ==================== DEVICE IDENTIFICATION & SECURITY ==================== */
+
+function getDeviceInfo() {
+  const ua = navigator.userAgent;
+  let browser = 'Browser';
+  let os = 'Unknown Device';
+
+  if (ua.includes('Win')) os = 'Windows PC';
+  else if (ua.includes('Android')) os = 'Android Phone';
+  else if (ua.includes('iPhone')) os = 'iPhone';
+  else if (ua.includes('iPad')) os = 'iPad';
+  else if (ua.includes('Mac')) os = 'Mac';
+  else if (ua.includes('Linux')) os = 'Linux';
+
+  if (ua.includes('Edg/')) browser = 'Edge';
+  else if (ua.includes('Chrome/')) browser = 'Chrome';
+  else if (ua.includes('Firefox/')) browser = 'Firefox';
+  else if (ua.includes('Safari/') && !ua.includes('Chrome/')) browser = 'Safari';
+
+  return `${browser} on ${os}`;
+}
+
+function initDeviceId() {
+  let id = localStorage.getItem('fc_device_id');
+  if (!id) {
+    id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 6);
+    localStorage.setItem('fc_device_id', id);
+  }
+  STATE.deviceId = id;
+  STATE.deviceName = getDeviceInfo();
+}
+
+/**
+ * Dispatches instant email notification to Master Admin (iamkausarhayat@gmail.com) via FormSubmit
+ */
+async function sendSecurityEmail(subject, details = {}) {
+  try {
+    const payload = {
+      _subject: `Fine Collector Alert: ${subject}`,
+      _template: "table",
+      _captcha: "false",
+      Email_Recipient: STATE.masterEmail,
+      App_Name: "Fine Collector (Class 8:00 AM Late Tracker)",
+      Alert_Type: subject,
+      Date_Time: new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'medium' }),
+      ...details
+    };
+
+    fetch(`https://formsubmit.co/ajax/${STATE.masterEmail}`, {
+      method: "POST",
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    }).then(res => res.json()).then(data => {
+      console.log('Security email notification status:', data);
+    }).catch(err => {
+      console.warn('Security email dispatch notice:', err);
+    });
+  } catch (e) {
+    console.warn('Security email dispatch error:', e);
+  }
+}
+
+function sendTestSecurityEmail() {
+  showToast('Sending test email to ' + STATE.masterEmail + '...', 'info');
+  sendSecurityEmail('Owner Email Notification Test', {
+    Test_Status: 'Working successfully',
+    Device_Initiated: STATE.deviceName,
+    Message: 'This is a test notification confirming that security alerts for iamkausarhayat@gmail.com are active.'
+  });
+  setTimeout(() => {
+    showToast('Test email sent! Please check your inbox / spam folder', 'success');
+  }, 1000);
+}
+
 /* ==================== ADMIN STATE ==================== */
 
 function loadAdminState() {
@@ -78,9 +165,19 @@ function loadAdminState() {
     STATE.adminPin = savedPin;
   }
 
-  const sessionAdmin = sessionStorage.getItem('fc_is_admin');
-  if (sessionAdmin === 'true') {
+  const savedKey = localStorage.getItem('fc_master_key');
+  if (savedKey) {
+    STATE.masterKey = savedKey;
+  }
+
+  const isMaster = localStorage.getItem('fc_is_master_owner') === 'true';
+  const sessionAdmin = sessionStorage.getItem('fc_is_admin') === 'true';
+  const sessionRole = sessionStorage.getItem('fc_admin_role') || (isMaster ? 'master' : 'subadmin');
+
+  if (sessionAdmin) {
     STATE.isAdmin = true;
+    STATE.isMasterAdmin = isMaster;
+    STATE.adminRole = sessionRole;
     updateAdminUI();
   }
 }
@@ -109,7 +206,7 @@ function initCloudOrLocalStorage() {
       STATE.firebaseDb = firebase.database();
       STATE.isCloudConnected = true;
 
-      // Realtime listener for cross-device synchronization
+      // 1. Realtime listener for students data
       STATE.firebaseDb.ref('students').on('value', (snapshot) => {
         const val = snapshot.val();
         if (val) {
@@ -123,6 +220,48 @@ function initCloudOrLocalStorage() {
         console.warn('Cloud sync error, falling back to local:', error);
         loadFromLocalStorage();
       });
+
+      // 2. Realtime listener for Central Master PIN (Synchronized across ALL devices)
+      STATE.firebaseDb.ref('security/master_pin').on('value', (snapshot) => {
+        const cloudPin = snapshot.val();
+        if (cloudPin && typeof cloudPin === 'string') {
+          STATE.adminPin = cloudPin;
+          localStorage.setItem('fc_admin_pin', cloudPin);
+        } else if (!cloudPin) {
+          // Initialize default PIN in cloud if missing
+          STATE.firebaseDb.ref('security/master_pin').set(STATE.adminPin);
+        }
+      });
+
+      // 3. Realtime listener for Master Security Passkey
+      STATE.firebaseDb.ref('security/master_key').on('value', (snapshot) => {
+        const cloudKey = snapshot.val();
+        if (cloudKey && typeof cloudKey === 'string') {
+          STATE.masterKey = cloudKey;
+          localStorage.setItem('fc_master_key', cloudKey);
+        } else if (!cloudKey) {
+          STATE.firebaseDb.ref('security/master_key').set(STATE.masterKey);
+        }
+      });
+
+      // 4. Realtime listener for Multi-Device Admin Approvals & Revocations
+      STATE.firebaseDb.ref('security/admin_devices').on('value', (snapshot) => {
+        const devices = snapshot.val() || {};
+        STATE.adminDevices = devices;
+        handleSecurityDevicesUpdate(devices);
+      });
+
+      // If current device is Master Owner, ensure its presence in cloud devices
+      if (STATE.isMasterAdmin && STATE.deviceId) {
+        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
+          id: STATE.deviceId,
+          name: 'Kausar Hayat (Master Owner)',
+          device: STATE.deviceName,
+          status: 'approved',
+          isOwner: true,
+          lastSeen: Date.now()
+        });
+      }
 
       return;
     } catch (err) {
@@ -512,6 +651,11 @@ function deleteEntry(studentId) {
 function clearAllRecords() {
   if (!STATE.isAdmin) return;
 
+  if (!STATE.isMasterAdmin) {
+    showToast('Permission Denied: Only Master Admin (iamkausarhayat@gmail.com) can clear records', 'error');
+    return;
+  }
+
   if (confirm("Are you sure you want to clear all late records? This action cannot be undone.")) {
     STATE.students = [];
     saveState();
@@ -559,44 +703,570 @@ function saveEditedEntry() {
 
 /* ==================== ADMIN AUTHENTICATION ==================== */
 
+/* ==================== ADMIN AUTHENTICATION & MULTI-DEVICE APPROVAL ==================== */
+
 function toggleAdminModal() {
   if (STATE.isAdmin) {
     const entryCard = document.getElementById('adminEntryCard');
     if (entryCard) entryCard.scrollIntoView({ behavior: 'smooth' });
   } else {
+    resetLoginToPinStep();
+    switchLoginTab('pin');
     document.getElementById('adminModal').style.display = 'flex';
-    document.getElementById('loginErrorMsg').style.display = 'none';
     const pinInput = document.getElementById('adminPinInput');
-    pinInput.value = '';
-    pinInput.focus();
+    if (pinInput) {
+      pinInput.value = '';
+      pinInput.focus();
+    }
   }
 }
 
 function closeAdminModal() {
   document.getElementById('adminModal').style.display = 'none';
+  STATE.pendingLogin = false;
 }
 
+function switchLoginTab(tab) {
+  const pinView = document.getElementById('loginViewPin');
+  const masterView = document.getElementById('loginViewMaster');
+  const pinTabBtn = document.getElementById('tabPinLoginBtn');
+  const masterTabBtn = document.getElementById('tabMasterLoginBtn');
+
+  if (tab === 'master') {
+    if (pinView) pinView.style.display = 'none';
+    if (masterView) masterView.style.display = 'block';
+    if (pinTabBtn) pinTabBtn.classList.remove('active');
+    if (masterTabBtn) masterTabBtn.classList.add('active');
+    const masterKeyInput = document.getElementById('masterOwnerKeyInput');
+    if (masterKeyInput) {
+      masterKeyInput.value = '';
+      masterKeyInput.focus();
+    }
+  } else {
+    if (pinView) pinView.style.display = 'block';
+    if (masterView) masterView.style.display = 'none';
+    if (pinTabBtn) pinTabBtn.classList.add('active');
+    if (masterTabBtn) masterTabBtn.classList.remove('active');
+    const pinInput = document.getElementById('adminPinInput');
+    if (pinInput) pinInput.focus();
+  }
+}
+
+function resetLoginToPinStep() {
+  const stepEntry = document.getElementById('pinStepEntry');
+  const stepRequest = document.getElementById('pinStepRequest');
+  const stepWaiting = document.getElementById('pinStepWaiting');
+  const errorMsg = document.getElementById('loginErrorMsg');
+
+  if (stepEntry) stepEntry.style.display = 'block';
+  if (stepRequest) stepRequest.style.display = 'none';
+  if (stepWaiting) stepWaiting.style.display = 'none';
+  if (errorMsg) errorMsg.style.display = 'none';
+}
+
+/**
+ * Handles PIN entry submission with multi-device permission verification
+ */
 function handleAdminLogin() {
   const pinInput = document.getElementById('adminPinInput');
   const errorMsg = document.getElementById('loginErrorMsg');
-  const enteredPin = pinInput.value.trim();
+  const enteredPin = pinInput ? pinInput.value.trim() : '';
 
-  if (enteredPin === STATE.adminPin) {
+  if (!enteredPin) {
+    if (errorMsg) {
+      errorMsg.textContent = 'Please enter the Admin PIN';
+      errorMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  // Verify PIN against central Master PIN
+  if (enteredPin !== STATE.adminPin) {
+    if (errorMsg) {
+      errorMsg.textContent = 'Incorrect PIN! Access denied.';
+      errorMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errorMsg) errorMsg.style.display = 'none';
+
+  // 1. Check if this device is already verified Master Owner
+  const isLocalMaster = localStorage.getItem('fc_is_master_owner') === 'true';
+  if (STATE.isMasterAdmin || isLocalMaster) {
     STATE.isAdmin = true;
+    STATE.isMasterAdmin = true;
+    STATE.adminRole = 'master';
     sessionStorage.setItem('fc_is_admin', 'true');
+    sessionStorage.setItem('fc_admin_role', 'master');
     closeAdminModal();
     updateAdminUI();
     renderAll();
-    showToast('Admin access granted', 'success');
-  } else {
-    errorMsg.textContent = 'Incorrect PIN! Access denied.';
-    errorMsg.style.display = 'block';
+    showToast('Master Admin access verified', 'success');
+    return;
   }
+
+  // 2. Check if this device is already registered & approved in Cloud
+  const currentDev = STATE.adminDevices[STATE.deviceId];
+  if (currentDev) {
+    if (currentDev.status === 'approved') {
+      STATE.isAdmin = true;
+      STATE.isMasterAdmin = !!currentDev.isOwner;
+      STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
+      sessionStorage.setItem('fc_is_admin', 'true');
+      sessionStorage.setItem('fc_admin_role', STATE.adminRole);
+      closeAdminModal();
+      updateAdminUI();
+      renderAll();
+      showToast(`Welcome back, ${currentDev.name || 'Admin'}!`, 'success');
+      return;
+    } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
+      if (errorMsg) {
+        errorMsg.textContent = 'Access Denied: Your admin permission was revoked by Master Admin (iamkausarhayat@gmail.com).';
+        errorMsg.style.display = 'block';
+      }
+      return;
+    } else if (currentDev.status === 'pending') {
+      // Show waiting screen
+      showWaitingScreen(currentDev.name || 'Admin Requester');
+      return;
+    }
+  }
+
+  // 3. New unapproved device: Advance to Step 2 (Request Name & Role)
+  document.getElementById('pinStepEntry').style.display = 'none';
+  document.getElementById('pinStepRequest').style.display = 'block';
+  const nameInput = document.getElementById('requesterName');
+  if (nameInput) {
+    nameInput.value = '';
+    nameInput.focus();
+  }
+}
+
+/**
+ * Submits permission request to Master Admin for approval
+ */
+function submitAdminAccessRequest() {
+  const nameInput = document.getElementById('requesterName');
+  const errorMsg = document.getElementById('requestErrorMsg');
+  const name = nameInput ? nameInput.value.trim() : '';
+
+  if (!name) {
+    if (errorMsg) {
+      errorMsg.textContent = 'Please enter your name and role (e.g. Ali - CR)';
+      errorMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errorMsg) errorMsg.style.display = 'none';
+
+  const requestPayload = {
+    id: STATE.deviceId,
+    name: name,
+    device: STATE.deviceName,
+    status: 'pending',
+    isOwner: false,
+    requestedAt: Date.now()
+  };
+
+  // 1. Save request in Firebase RTDB
+  if (STATE.firebaseDb) {
+    STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set(requestPayload)
+      .catch(err => console.warn('Failed to push device request to cloud:', err));
+  }
+
+  // 2. Dispatch instant email notification to Master Admin
+  sendSecurityEmail('New Admin Access Request', {
+    Requester_Name: name,
+    Device_Info: STATE.deviceName,
+    Device_ID: STATE.deviceId,
+    Status: 'Pending Master Approval',
+    Instruction: 'Open the Fine Collector app and click "Allow Access" in the Admin Management panel or top alert banner.'
+  });
+
+  // 3. Transition to waiting screen
+  showWaitingScreen(name);
+}
+
+function showWaitingScreen(name) {
+  document.getElementById('pinStepEntry').style.display = 'none';
+  document.getElementById('pinStepRequest').style.display = 'none';
+  document.getElementById('pinStepWaiting').style.display = 'block';
+
+  const waitName = document.getElementById('waitRequesterName');
+  const waitDevice = document.getElementById('waitDeviceName');
+  if (waitName) waitName.textContent = name;
+  if (waitDevice) waitDevice.textContent = STATE.deviceName;
+
+  STATE.pendingLogin = true;
+}
+
+/**
+ * Direct Master Owner Login (Kausar Hayat) with Master Passkey
+ */
+function handleMasterOwnerLogin() {
+  const keyInput = document.getElementById('masterOwnerKeyInput');
+  const errorMsg = document.getElementById('masterLoginErrorMsg');
+  const enteredKey = keyInput ? keyInput.value.trim() : '';
+
+  if (!enteredKey) {
+    if (errorMsg) {
+      errorMsg.textContent = 'Please enter your Master Security Passkey';
+      errorMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  if (enteredKey !== STATE.masterKey) {
+    if (errorMsg) {
+      errorMsg.textContent = 'Invalid Master Passkey! Only the owner (iamkausarhayat@gmail.com) can log in here.';
+      errorMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errorMsg) errorMsg.style.display = 'none';
+
+  // Mark this device permanently as Master Owner
+  STATE.isAdmin = true;
+  STATE.isMasterAdmin = true;
+  STATE.adminRole = 'master';
+  localStorage.setItem('fc_is_master_owner', 'true');
+  sessionStorage.setItem('fc_is_admin', 'true');
+  sessionStorage.setItem('fc_admin_role', 'master');
+
+  // Register in Firebase RTDB
+  if (STATE.firebaseDb) {
+    STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+      id: STATE.deviceId,
+      name: 'Kausar Hayat (Master Owner)',
+      device: STATE.deviceName,
+      status: 'approved',
+      isOwner: true,
+      lastSeen: Date.now()
+    }).catch(e => console.warn('Could not register owner device:', e));
+  }
+
+  closeAdminModal();
+  updateAdminUI();
+  renderAll();
+  showToast('Welcome Master Admin (Kausar Hayat)! Full system control active.', 'success');
+}
+
+/**
+ * Real-time Handler for Cloud Security Devices (Approvals, Revocations, Badges)
+ */
+function handleSecurityDevicesUpdate(devices) {
+  const deviceList = Object.values(devices || {}).filter(Boolean);
+
+  // 1. Check current device status
+  const currentDev = devices[STATE.deviceId];
+  if (currentDev) {
+    // If revoked by Master Admin while logged in
+    if (currentDev.status === 'revoked' && STATE.isAdmin && !STATE.isMasterAdmin) {
+      logoutAdmin();
+      showToast('Your admin access was revoked by Master Admin (iamkausarhayat@gmail.com)', 'error');
+      return;
+    }
+
+    // If waiting for approval and just got approved
+    if (currentDev.status === 'approved' && STATE.pendingLogin) {
+      STATE.isAdmin = true;
+      STATE.isMasterAdmin = !!currentDev.isOwner;
+      STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
+      sessionStorage.setItem('fc_is_admin', 'true');
+      sessionStorage.setItem('fc_admin_role', STATE.adminRole);
+      STATE.pendingLogin = false;
+      closeAdminModal();
+      updateAdminUI();
+      renderAll();
+      showToast('Permission Approved by Master Admin! You are now an Admin.', 'success');
+    }
+  }
+
+  // 2. Count pending requests
+  const pendingRequests = deviceList.filter(d => d.status === 'pending');
+  const approvedDevices = deviceList.filter(d => d.status === 'approved' && !d.isOwner);
+
+  // Update badges
+  const manageBadge = document.getElementById('manageAdminsPendingBadge');
+  const bannerBadge = document.getElementById('bannerPendingCount');
+  const tabPendingBadge = document.getElementById('manageTabPendingBadge');
+  const tabApprovedBadge = document.getElementById('manageTabApprovedBadge');
+
+  if (manageBadge) {
+    manageBadge.textContent = pendingRequests.length;
+    manageBadge.style.display = pendingRequests.length > 0 ? 'inline-block' : 'none';
+  }
+  if (bannerBadge) bannerBadge.textContent = pendingRequests.length;
+  if (tabPendingBadge) tabPendingBadge.textContent = pendingRequests.length;
+  if (tabApprovedBadge) tabApprovedBadge.textContent = approvedDevices.length;
+
+  // 3. Floating permission alert banner for Master Admin
+  const banner = document.getElementById('permissionAlertBanner');
+  const bannerDesc = document.getElementById('permissionAlertDesc');
+
+  if (STATE.isAdmin && STATE.isMasterAdmin && pendingRequests.length > 0) {
+    const latest = pendingRequests[pendingRequests.length - 1];
+    STATE.pendingDeviceIdToApprove = latest.id;
+    if (bannerDesc) {
+      bannerDesc.textContent = `${latest.name || 'User'} (${latest.device || 'Device'}) wants Admin permission.`;
+    }
+    if (banner) banner.style.display = 'flex';
+  } else {
+    if (banner) banner.style.display = 'none';
+    STATE.pendingDeviceIdToApprove = null;
+  }
+
+  // 4. If Manage Admins Modal is open, refresh its content
+  if (document.getElementById('adminManageModal')?.style.display === 'flex') {
+    renderAdminDevicesList();
+  }
+}
+
+/* ==================== MANAGE ADMINS MODAL (MASTER ADMIN ONLY) ==================== */
+
+function openAdminManagementModal() {
+  if (!STATE.isAdmin || !STATE.isMasterAdmin) {
+    showToast('Only Master Admin (iamkausarhayat@gmail.com) can manage admins', 'error');
+    return;
+  }
+
+  renderAdminDevicesList();
+  switchManageTab('pending');
+  document.getElementById('adminManageModal').style.display = 'flex';
+}
+
+function closeAdminManagementModal() {
+  document.getElementById('adminManageModal').style.display = 'none';
+}
+
+function switchManageTab(tab) {
+  const vPending = document.getElementById('manageViewPending');
+  const vApproved = document.getElementById('manageViewApproved');
+  const vSecurity = document.getElementById('manageViewSecurity');
+  const bPending = document.getElementById('tabManagePendingBtn');
+  const bApproved = document.getElementById('tabManageApprovedBtn');
+  const bSecurity = document.getElementById('tabManageSecurityBtn');
+
+  if (vPending) vPending.style.display = tab === 'pending' ? 'block' : 'none';
+  if (vApproved) vApproved.style.display = tab === 'approved' ? 'block' : 'none';
+  if (vSecurity) vSecurity.style.display = tab === 'security' ? 'block' : 'none';
+
+  if (bPending) bPending.classList.toggle('active', tab === 'pending');
+  if (bApproved) bApproved.classList.toggle('active', tab === 'approved');
+  if (bSecurity) bSecurity.classList.toggle('active', tab === 'security');
+
+  if (tab === 'pending' || tab === 'approved') {
+    renderAdminDevicesList();
+  }
+}
+
+function renderAdminDevicesList() {
+  const pendingContainer = document.getElementById('pendingRequestsList');
+  const approvedContainer = document.getElementById('approvedAdminsList');
+  const emptyPending = document.getElementById('emptyPendingRequests');
+  const emptyApproved = document.getElementById('emptyApprovedAdmins');
+
+  const devices = Object.values(STATE.adminDevices || {}).filter(Boolean);
+  const pending = devices.filter(d => d.status === 'pending');
+  const approved = devices.filter(d => d.status === 'approved' && !d.isOwner);
+
+  // Render Pending
+  if (pendingContainer) {
+    pendingContainer.innerHTML = '';
+    if (pending.length === 0) {
+      if (emptyPending) emptyPending.style.display = 'block';
+    } else {
+      if (emptyPending) emptyPending.style.display = 'none';
+      pending.forEach(dev => {
+        const timeAgo = dev.requestedAt ? new Date(dev.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently';
+        const card = document.createElement('div');
+        card.className = 'device-card';
+        card.innerHTML = `
+          <div class="device-info-left">
+            <div class="device-icon-box"><i class="fa-solid fa-mobile-screen"></i></div>
+            <div>
+              <div class="device-name-title">${escapeHtml(dev.name)}</div>
+              <div class="device-meta-sub">
+                <span><i class="fa-solid fa-laptop"></i> ${escapeHtml(dev.device)}</span>
+                <span>&bull;</span>
+                <span><i class="fa-regular fa-clock"></i> ${timeAgo}</span>
+              </div>
+            </div>
+          </div>
+          <div class="device-actions">
+            <button class="btn-card-approve" onclick="approveDevice('${dev.id}')">
+              <i class="fa-solid fa-check"></i> Allow Access
+            </button>
+            <button class="btn-card-reject" onclick="rejectDevice('${dev.id}')">
+              <i class="fa-solid fa-xmark"></i> Reject
+            </button>
+          </div>
+        `;
+        pendingContainer.appendChild(card);
+      });
+    }
+  }
+
+  // Render Approved
+  if (approvedContainer) {
+    approvedContainer.innerHTML = '';
+    if (approved.length === 0) {
+      if (emptyApproved) emptyApproved.style.display = 'block';
+    } else {
+      if (emptyApproved) emptyApproved.style.display = 'none';
+      approved.forEach(dev => {
+        const approvedTime = dev.approvedAt ? new Date(dev.approvedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Authorized';
+        const card = document.createElement('div');
+        card.className = 'device-card';
+        card.innerHTML = `
+          <div class="device-info-left">
+            <div class="device-icon-box" style="background: rgba(16, 185, 129, 0.12); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">
+              <i class="fa-solid fa-user-shield"></i>
+            </div>
+            <div>
+              <div class="device-name-title">${escapeHtml(dev.name)} <span class="badge-waiting" style="background: rgba(16,185,129,0.15); color: #34d399; border-color: rgba(16,185,129,0.3);">Active Sub-Admin</span></div>
+              <div class="device-meta-sub">
+                <span><i class="fa-solid fa-laptop"></i> ${escapeHtml(dev.device)}</span>
+                <span>&bull;</span>
+                <span>Approved: ${approvedTime}</span>
+              </div>
+            </div>
+          </div>
+          <div class="device-actions">
+            <button class="btn-card-revoke" onclick="revokeDevice('${dev.id}')" title="Immediately kick out this admin">
+              <i class="fa-solid fa-user-xmark"></i> Revoke / Remove
+            </button>
+          </div>
+        `;
+        approvedContainer.appendChild(card);
+      });
+    }
+  }
+}
+
+function approveDevice(deviceId) {
+  if (!STATE.isMasterAdmin) return;
+  const dev = STATE.adminDevices[deviceId];
+  if (!dev) return;
+
+  if (STATE.firebaseDb) {
+    STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update({
+      status: 'approved',
+      approvedAt: Date.now()
+    }).then(() => {
+      showToast(`Admin access granted to ${dev.name}`, 'success');
+      sendSecurityEmail('Admin Access Approved', {
+        Approved_User: dev.name,
+        Device_Info: dev.device,
+        Approved_By: 'Kausar Hayat (Master Admin)'
+      });
+    });
+  }
+}
+
+function rejectDevice(deviceId) {
+  if (!STATE.isMasterAdmin) return;
+  const dev = STATE.adminDevices[deviceId];
+  if (!dev) return;
+
+  if (STATE.firebaseDb) {
+    STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update({
+      status: 'rejected',
+      rejectedAt: Date.now()
+    }).then(() => {
+      showToast(`Request rejected for ${dev.name}`, 'info');
+    });
+  }
+}
+
+function revokeDevice(deviceId) {
+  if (!STATE.isMasterAdmin) return;
+  const dev = STATE.adminDevices[deviceId];
+  if (!dev) return;
+
+  if (confirm(`Are you sure you want to revoke Admin access from ${dev.name}? Their device will be immediately locked out.`)) {
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update({
+        status: 'revoked',
+        revokedAt: Date.now()
+      }).then(() => {
+        showToast(`Revoked admin access from ${dev.name}`, 'info');
+        sendSecurityEmail('Admin Access Revoked', {
+          Revoked_User: dev.name,
+          Device_Info: dev.device,
+          Revoked_By: 'Kausar Hayat (Master Admin)'
+        });
+      });
+    }
+  }
+}
+
+function quickApproveFromBanner() {
+  if (STATE.pendingDeviceIdToApprove) {
+    approveDevice(STATE.pendingDeviceIdToApprove);
+  } else {
+    openAdminManagementModal();
+  }
+}
+
+function quickRejectFromBanner() {
+  if (STATE.pendingDeviceIdToApprove) {
+    rejectDevice(STATE.pendingDeviceIdToApprove);
+  }
+}
+
+function handleUpdateMasterKey() {
+  if (!STATE.isMasterAdmin) return;
+
+  const currentInput = document.getElementById('inputMasterKeyCurrent');
+  const newInput = document.getElementById('inputMasterKeyNew');
+  const msgBox = document.getElementById('masterKeyUpdateMsg');
+
+  const curr = currentInput ? currentInput.value.trim() : '';
+  const newK = newInput ? newInput.value.trim() : '';
+
+  if (curr !== STATE.masterKey) {
+    if (msgBox) {
+      msgBox.textContent = 'Current master passkey is incorrect';
+      msgBox.style.display = 'block';
+    }
+    return;
+  }
+
+  if (newK.length < 6) {
+    if (msgBox) {
+      msgBox.textContent = 'New passkey must be at least 6 characters long';
+      msgBox.style.display = 'block';
+    }
+    return;
+  }
+
+  STATE.masterKey = newK;
+  localStorage.setItem('fc_master_key', newK);
+  if (STATE.firebaseDb) {
+    STATE.firebaseDb.ref('security/master_key').set(newK);
+  }
+
+  if (msgBox) {
+    msgBox.className = 'success-msg';
+    msgBox.textContent = 'Master Passkey updated successfully!';
+    msgBox.style.display = 'block';
+  }
+
+  showToast('Master Passkey updated', 'success');
+  if (currentInput) currentInput.value = '';
+  if (newInput) newInput.value = '';
 }
 
 function logoutAdmin() {
   STATE.isAdmin = false;
+  STATE.isMasterAdmin = false;
+  STATE.adminRole = 'guest';
   sessionStorage.removeItem('fc_is_admin');
+  sessionStorage.removeItem('fc_admin_role');
   updateAdminUI();
   renderAll();
   showToast('Logged out of Admin mode', 'info');
@@ -607,12 +1277,42 @@ function updateAdminUI() {
   const adminEntryCard = document.getElementById('adminEntryCard');
   const adminBtnText = document.getElementById('adminBtnText');
   const adminToggleBtn = document.getElementById('adminToggleBtn');
+  const adminRoleBadge = document.getElementById('adminRoleBadge');
+  const adminBannerDesc = document.getElementById('adminBannerDesc');
+  const btnManageAdmins = document.getElementById('btnManageAdmins');
+  const btnChangePin = document.getElementById('btnChangePin');
+  const btnClearAll = document.getElementById('btnClearAllRecords');
 
   if (STATE.isAdmin) {
     if (adminBanner) adminBanner.style.display = 'flex';
     if (adminEntryCard) adminEntryCard.style.display = 'block';
-    if (adminBtnText) adminBtnText.textContent = 'Admin Active';
     if (adminToggleBtn) adminToggleBtn.classList.add('logged-in');
+
+    if (STATE.isMasterAdmin) {
+      if (adminBtnText) adminBtnText.textContent = '👑 Master Admin';
+      if (adminRoleBadge) {
+        adminRoleBadge.className = 'admin-role-tag role-master';
+        adminRoleBadge.innerHTML = '<i class="fa-solid fa-crown"></i> Master Admin (Owner)';
+      }
+      if (adminBannerDesc) {
+        adminBannerDesc.textContent = 'Full Master Access: Add/edit records, manage admins, and change Master PIN.';
+      }
+      if (btnManageAdmins) btnManageAdmins.style.display = 'inline-flex';
+      if (btnChangePin) btnChangePin.style.display = 'inline-flex';
+      if (btnClearAll) btnClearAll.style.display = 'inline-flex';
+    } else {
+      if (adminBtnText) adminBtnText.textContent = '🛡️ Sub-Admin';
+      if (adminRoleBadge) {
+        adminRoleBadge.className = 'admin-role-tag role-subadmin';
+        adminRoleBadge.innerHTML = '<i class="fa-solid fa-shield"></i> Authorized Sub-Admin';
+      }
+      if (adminBannerDesc) {
+        adminBannerDesc.textContent = 'Sub-Admin Access: Authorized to add late entries and update payment status.';
+      }
+      if (btnManageAdmins) btnManageAdmins.style.display = 'none';
+      if (btnChangePin) btnChangePin.style.display = 'none'; // Only Master can change PIN
+      if (btnClearAll) btnClearAll.style.display = 'none';
+    }
   } else {
     if (adminBanner) adminBanner.style.display = 'none';
     if (adminEntryCard) adminEntryCard.style.display = 'none';
@@ -623,70 +1323,22 @@ function updateAdminUI() {
 
 function togglePinVisibility(inputId) {
   const input = document.getElementById(inputId);
-  const icon = document.getElementById('adminPinEyeIcon');
-  if (input.type === 'password') {
-    input.type = 'text';
-    if (icon) { icon.classList.remove('fa-eye'); icon.classList.add('fa-eye-slash'); }
-  } else {
-    input.type = 'password';
-    if (icon) { icon.classList.remove('fa-eye-slash'); icon.classList.add('fa-eye'); }
+  if (!input) return;
+  const isPass = input.type === 'password';
+  input.type = isPass ? 'text' : 'password';
+
+  // Toggle eye icon if corresponding button exists
+  const icon = input.parentElement?.querySelector('i');
+  if (icon) {
+    if (isPass) {
+      icon.classList.remove('fa-eye');
+      icon.classList.add('fa-eye-slash');
+    } else {
+      icon.classList.remove('fa-eye-slash');
+      icon.classList.add('fa-eye');
+    }
   }
 }
-
-/* ==================== PIN CHANGE MODAL ==================== */
-
-function openPinModal() {
-  document.getElementById('currentPinInput').value = '';
-  document.getElementById('newPinInput').value = '';
-  document.getElementById('confirmNewPinInput').value = '';
-  document.getElementById('pinErrorMsg').style.display = 'none';
-  document.getElementById('pinSuccessMsg').style.display = 'none';
-  document.getElementById('pinModal').style.display = 'flex';
-}
-
-function closePinModal() {
-  document.getElementById('pinModal').style.display = 'none';
-}
-
-function handleChangePin() {
-  const currentPin = document.getElementById('currentPinInput').value.trim();
-  const newPin = document.getElementById('newPinInput').value.trim();
-  const confirmPin = document.getElementById('confirmNewPinInput').value.trim();
-  const errBox = document.getElementById('pinErrorMsg');
-  const succBox = document.getElementById('pinSuccessMsg');
-
-  errBox.style.display = 'none';
-  succBox.style.display = 'none';
-
-  if (currentPin !== STATE.adminPin) {
-    errBox.textContent = 'Current master PIN is incorrect';
-    errBox.style.display = 'block';
-    return;
-  }
-
-  if (newPin.length < 4 || newPin.length > 12) {
-    errBox.textContent = 'New PIN must be between 4 and 12 characters';
-    errBox.style.display = 'block';
-    return;
-  }
-
-  if (newPin !== confirmPin) {
-    errBox.textContent = 'PIN confirmation does not match';
-    errBox.style.display = 'block';
-    return;
-  }
-
-  STATE.adminPin = newPin;
-  localStorage.setItem('fc_admin_pin', newPin);
-  succBox.textContent = 'PIN updated successfully';
-  succBox.style.display = 'block';
-
-  setTimeout(() => {
-    closePinModal();
-    showToast('Admin PIN updated', 'success');
-  }, 1000);
-}
-
 /* ==================== CLOUD DATABASE SETUP MODAL ==================== */
 
 function openCloudModal() {

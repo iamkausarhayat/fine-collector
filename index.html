@@ -49,22 +49,59 @@
       </div>
     </header>
 
+    <!-- Real-time Admin Permission Request Banner (Shown to Master Admin when someone requests access) -->
+    <div class="permission-alert-banner" id="permissionAlertBanner" style="display: none;">
+      <div class="alert-banner-left">
+        <div class="alert-pulse-ring">
+          <i class="fa-solid fa-bell"></i>
+        </div>
+        <div class="alert-banner-info">
+          <span class="alert-banner-title">New Admin Permission Request!</span>
+          <span class="alert-banner-desc" id="permissionAlertDesc">A user wants admin access</span>
+        </div>
+      </div>
+      <div class="alert-banner-actions">
+        <button class="btn-xs btn-banner-approve" onclick="quickApproveFromBanner()" title="Grant Admin Access">
+          <i class="fa-solid fa-check"></i> Allow Access
+        </button>
+        <button class="btn-xs btn-banner-reject" onclick="quickRejectFromBanner()" title="Reject Request">
+          <i class="fa-solid fa-xmark"></i> Reject
+        </button>
+        <button class="btn-xs btn-banner-view" onclick="openAdminManagementModal()">
+          <i class="fa-solid fa-list-check"></i> View All (<span id="bannerPendingCount">1</span>)
+        </button>
+      </div>
+    </div>
+
     <!-- Admin Status Banner (Shown only when admin is logged in) -->
     <div class="admin-banner" id="adminBanner" style="display: none;">
       <div class="admin-banner-content">
-        <i class="fa-solid fa-user-check"></i>
-        <span><strong>Admin Mode Active:</strong> You can add late entries, update payment status, and edit records.</span>
+        <span class="admin-role-tag" id="adminRoleBadge">
+          <i class="fa-solid fa-crown"></i> Master Admin
+        </span>
+        <span class="admin-banner-desc" id="adminBannerDesc">
+          Authorized to add records, update payment status, and manage system.
+        </span>
       </div>
       <div class="admin-banner-actions">
+        <!-- Master Admin Only: Manage Authorized Admins -->
+        <button class="btn-sm btn-manage-admins" id="btnManageAdmins" onclick="openAdminManagementModal()" title="Manage Authorized Devices & Permissions">
+          <i class="fa-solid fa-users-gear"></i> Manage Admins
+          <span class="badge-pending" id="manageAdminsPendingBadge" style="display: none;">0</span>
+        </button>
+        <!-- Master PIN Change (Master verified) -->
+        <button class="btn-sm" id="btnChangePin" onclick="openPinModal()" title="Change Master Admin PIN">
+          <i class="fa-solid fa-key"></i> Change PIN
+        </button>
+        <!-- Cloud DB Setup -->
         <button class="btn-sm" onclick="openCloudModal()" title="Cloud Database Setup">
           <i class="fa-solid fa-cloud"></i> Cloud DB
         </button>
-        <button class="btn-sm" onclick="openPinModal()" title="Change Admin PIN">
-          <i class="fa-solid fa-key"></i> Change PIN
-        </button>
-        <button class="btn-sm" onclick="clearAllRecords()" title="Clear All Records">
+        <!-- Clear All -->
+        <button class="btn-sm" id="btnClearAllRecords" onclick="clearAllRecords()" title="Clear All Records">
           <i class="fa-solid fa-trash-can"></i> Clear All
         </button>
+        <!-- Logout -->
         <button class="btn-sm btn-logout" onclick="logoutAdmin()">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
@@ -257,64 +294,297 @@
 
   <!-- ==================== MODALS ==================== -->
 
-  <!-- Minimal Admin Login Modal (JUST the PIN box & Submit button) -->
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- Multi-Device Admin Login Modal -->
   <div class="modal-overlay" id="adminModal" onclick="handleModalOverlayClick(event, 'adminModal')">
-    <div class="modal-box modal-sm">
+    <div class="modal-box modal-md">
       <div class="modal-header">
-        <h3><i class="fa-solid fa-lock"></i> Admin Access</h3>
+        <h3><i class="fa-solid fa-shield-halved"></i> Admin Access</h3>
         <button class="modal-close" onclick="closeAdminModal()">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="pin-input-wrap">
-          <input 
-            type="password" 
-            id="adminPinInput" 
-            maxlength="12" 
-            placeholder="Enter Admin PIN" 
-            autocomplete="off"
-            onkeypress="if(event.key === 'Enter') handleAdminLogin()"
-          >
-          <button type="button" class="btn-eye" onclick="togglePinVisibility('adminPinInput')">
-            <i class="fa-solid fa-eye" id="adminPinEyeIcon"></i>
-          </button>
-        </div>
-        <div id="loginErrorMsg" class="error-msg" style="display: none;"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeAdminModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="handleAdminLogin()">
-          <i class="fa-solid fa-arrow-right-to-bracket"></i> Login
+
+      <!-- Tab Switcher (PIN Login vs Master Owner) -->
+      <div class="modal-nav-tabs">
+        <button class="modal-tab active" id="tabPinLoginBtn" onclick="switchLoginTab('pin')">
+          <i class="fa-solid fa-key"></i> PIN Login
         </button>
+        <button class="modal-tab" id="tabMasterLoginBtn" onclick="switchLoginTab('master')">
+          <i class="fa-solid fa-crown"></i> Master Owner (Kausar)
+        </button>
+      </div>
+
+      <div class="modal-body">
+
+        <!-- TAB 1: PIN LOGIN WORKFLOW -->
+        <div id="loginViewPin">
+          
+          <!-- STEP 1: Enter PIN -->
+          <div id="pinStepEntry">
+            <p class="modal-subtitle">Enter the Admin Master PIN to authenticate this device.</p>
+            <div class="pin-input-wrap mb-3">
+              <input 
+                type="password" 
+                id="adminPinInput" 
+                maxlength="12" 
+                placeholder="Enter Admin PIN" 
+                autocomplete="off"
+                onkeypress="if(event.key === 'Enter') handleAdminLogin()"
+              >
+              <button type="button" class="btn-eye" onclick="togglePinVisibility('adminPinInput')">
+                <i class="fa-solid fa-eye" id="adminPinEyeIcon"></i>
+              </button>
+            </div>
+            <div id="loginErrorMsg" class="error-msg" style="display: none;"></div>
+            
+            <div class="modal-actions-row">
+              <button class="btn btn-secondary" onclick="closeAdminModal()">Cancel</button>
+              <button class="btn btn-primary" onclick="handleAdminLogin()">
+                <i class="fa-solid fa-arrow-right-to-bracket"></i> Verify PIN
+              </button>
+            </div>
+          </div>
+
+          <!-- STEP 2: Name Input for New / Unapproved Devices -->
+          <div id="pinStepRequest" style="display: none;">
+            <div class="permission-notice-box">
+              <i class="fa-solid fa-shield-check"></i>
+              <div>
+                <strong>Master PIN Verified!</strong>
+                <p>Since this is a new device, permission from Master Admin (<strong>iamkausarhayat@gmail.com</strong>) is required before access is granted.</p>
+              </div>
+            </div>
+
+            <div class="form-group mb-3">
+              <label for="requesterName"><i class="fa-solid fa-user-tag"></i> Your Full Name & Role</label>
+              <input 
+                type="text" 
+                id="requesterName" 
+                placeholder="e.g., Ali - Class CR or Co-Admin" 
+                required 
+                autocomplete="name"
+                onkeypress="if(event.key === 'Enter') submitAdminAccessRequest()"
+              >
+              <span class="input-helper">The Master Admin will see this name when deciding to allow or deny your access.</span>
+            </div>
+
+            <div id="requestErrorMsg" class="error-msg" style="display: none;"></div>
+
+            <div class="modal-actions-row">
+              <button class="btn btn-secondary" onclick="resetLoginToPinStep()">Back</button>
+              <button class="btn btn-primary btn-request-access" onclick="submitAdminAccessRequest()">
+                <i class="fa-solid fa-paper-plane"></i> Send Permission Request
+              </button>
+            </div>
+          </div>
+
+          <!-- STEP 3: Waiting for Master Approval Screen -->
+          <div id="pinStepWaiting" style="display: none;">
+            <div class="approval-waiting-card">
+              <div class="spinner-pulse"></div>
+              <h4>Waiting for Master Admin Approval...</h4>
+              <p>Your permission request has been dispatched to <strong>iamkausarhayat@gmail.com</strong>.</p>
+              <div class="waiting-details-box">
+                <div><span>Name:</span> <strong id="waitRequesterName">-</strong></div>
+                <div><span>Device:</span> <span id="waitDeviceName">-</span></div>
+                <div><span>Status:</span> <span class="badge-waiting"><i class="fa-solid fa-clock"></i> Pending Owner Approval</span></div>
+              </div>
+              <p class="waiting-live-note">
+                <i class="fa-solid fa-bolt"></i> Real-time Sync Active: As soon as Kausar clicks "Allow", this screen will automatically open!
+              </p>
+            </div>
+
+            <div class="modal-actions-row justify-center mt-3">
+              <button class="btn btn-secondary" onclick="closeAdminModal()">Close & Wait</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- TAB 2: MASTER OWNER DIRECT LOGIN -->
+        <div id="loginViewMaster" style="display: none;">
+          <div class="owner-login-card">
+            <div class="owner-avatar-icon">
+              <i class="fa-solid fa-crown"></i>
+            </div>
+            <h4>Master Admin Authentication</h4>
+            <p>Direct login for System Owner with full administrative control, PIN change rights, and multi-device approval management.</p>
+            
+            <div class="form-group mb-3 text-left">
+              <label><i class="fa-solid fa-envelope"></i> Owner Email</label>
+              <input type="email" id="masterOwnerEmailInput" value="iamkausarhayat@gmail.com" readonly class="input-readonly">
+            </div>
+
+            <div class="form-group mb-3 text-left">
+              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key"></i> Master Security Passkey</label>
+              <div class="pin-input-wrap">
+                <input 
+                  type="password" 
+                  id="masterOwnerKeyInput" 
+                  placeholder="Enter Master Security Passkey" 
+                  autocomplete="current-password"
+                  onkeypress="if(event.key === 'Enter') handleMasterOwnerLogin()"
+                >
+                <button type="button" class="btn-eye" onclick="togglePinVisibility('masterOwnerKeyInput')">
+                  <i class="fa-solid fa-eye" id="masterOwnerKeyEyeIcon"></i>
+                </button>
+              </div>
+              <span class="input-helper">Default Passkey: <code>kausar@admin2026</code> (can be changed in Owner Settings).</span>
+            </div>
+
+            <div id="masterLoginErrorMsg" class="error-msg" style="display: none;"></div>
+
+            <div class="modal-actions-row">
+              <button class="btn btn-secondary" onclick="closeAdminModal()">Cancel</button>
+              <button class="btn btn-gold" onclick="handleMasterOwnerLogin()">
+                <i class="fa-solid fa-crown"></i> Verify as Master Admin
+              </button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
 
-  <!-- Change PIN Modal -->
+  <!-- Master Admin: Manage Authorized Admins Modal -->
+  <div class="modal-overlay" id="adminManageModal" onclick="handleModalOverlayClick(event, 'adminManageModal')">
+    <div class="modal-box modal-lg">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h3><i class="fa-solid fa-users-gear"></i> Admin Access Management</h3>
+          <span class="master-owner-badge"><i class="fa-solid fa-shield-check"></i> Owner: iamkausarhayat@gmail.com</span>
+        </div>
+        <button class="modal-close" onclick="closeAdminManagementModal()">&times;</button>
+      </div>
+
+      <!-- Manage Tabs -->
+      <div class="modal-nav-tabs">
+        <button class="modal-tab active" id="tabManagePendingBtn" onclick="switchManageTab('pending')">
+          <i class="fa-solid fa-clock-rotate-left"></i> Pending Requests
+          <span class="badge-pending-count" id="manageTabPendingBadge">0</span>
+        </button>
+        <button class="modal-tab" id="tabManageApprovedBtn" onclick="switchManageTab('approved')">
+          <i class="fa-solid fa-circle-check"></i> Approved Admins (<span id="manageTabApprovedBadge">0</span>)
+        </button>
+        <button class="modal-tab" id="tabManageSecurityBtn" onclick="switchManageTab('security')">
+          <i class="fa-solid fa-lock"></i> Security & Alerts
+        </button>
+      </div>
+
+      <div class="modal-body">
+        
+        <!-- Tab 1: Pending Access Requests -->
+        <div id="manageViewPending">
+          <p class="modal-section-desc">
+            When another person enters the Master PIN on their phone or laptop, their request appears here. Only people you <strong>Allow</strong> can access Admin mode.
+          </p>
+          <div id="pendingRequestsList" class="devices-list-container">
+            <!-- Dynamically populated -->
+          </div>
+          <div id="emptyPendingRequests" class="empty-requests-box" style="display: none;">
+            <i class="fa-regular fa-circle-check"></i>
+            <h4>No Pending Requests</h4>
+            <p>All admin login requests have been reviewed.</p>
+          </div>
+        </div>
+
+        <!-- Tab 2: Approved Active Admins -->
+        <div id="manageViewApproved" style="display: none;">
+          <p class="modal-section-desc">
+            Devices that currently have Admin privileges. You can <strong>Revoke / Remove</strong> any admin at any time to immediately lock them out.
+          </p>
+          <div id="approvedAdminsList" class="devices-list-container">
+            <!-- Dynamically populated -->
+          </div>
+          <div id="emptyApprovedAdmins" class="empty-requests-box" style="display: none;">
+            <i class="fa-solid fa-user-shield"></i>
+            <h4>No Sub-Admins Currently Active</h4>
+            <p>Only your Master Admin device is authorized.</p>
+          </div>
+        </div>
+
+        <!-- Tab 3: Security & Passkey Settings -->
+        <div id="manageViewSecurity" style="display: none;">
+          <div class="security-card-box">
+            <h4><i class="fa-solid fa-envelope-shield"></i> Owner Email Notifications</h4>
+            <p>Instant alerts for new admin access requests and unauthorized PIN change attempts are dispatched to:</p>
+            <div class="owner-email-display">
+              <i class="fa-solid fa-at"></i>
+              <strong>iamkausarhayat@gmail.com</strong>
+              <span class="badge-verified"><i class="fa-solid fa-check-double"></i> Primary Owner</span>
+            </div>
+            <button class="btn btn-secondary btn-sm mt-2" onclick="sendTestSecurityEmail()">
+              <i class="fa-solid fa-paper-plane"></i> Send Test Notification Email
+            </button>
+          </div>
+
+          <div class="security-card-box mt-3">
+            <h4><i class="fa-solid fa-key"></i> Master Security Passkey</h4>
+            <p>This secret passkey verifies that you are Kausar Hayat. Only the holder of this passkey can change the Master PIN or manage admins.</p>
+            <div class="form-group mb-2">
+              <label>Current Master Passkey</label>
+              <input type="password" id="inputMasterKeyCurrent" placeholder="Enter current master passkey">
+            </div>
+            <div class="form-group mb-2">
+              <label>New Master Passkey</label>
+              <input type="password" id="inputMasterKeyNew" placeholder="Enter new master passkey">
+            </div>
+            <div id="masterKeyUpdateMsg" class="error-msg" style="display: none;"></div>
+            <button class="btn btn-primary btn-sm" onclick="handleUpdateMasterKey()">
+              <i class="fa-solid fa-floppy-disk"></i> Update Master Passkey
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeAdminManagementModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change PIN Modal (Master Protected & Centrally Synchronized) -->
   <div class="modal-overlay" id="pinModal" onclick="handleModalOverlayClick(event, 'pinModal')">
     <div class="modal-box">
       <div class="modal-header">
-        <h3><i class="fa-solid fa-key"></i> Change Admin Secret PIN</h3>
+        <h3><i class="fa-solid fa-key"></i> Change Master Admin PIN</h3>
         <button class="modal-close" onclick="closePinModal()">&times;</button>
       </div>
       <div class="modal-body">
-        <div class="form-group mb-3">
-          <label>Current Master PIN</label>
-          <input type="password" id="currentPinInput" placeholder="Enter current PIN">
+        
+        <div class="owner-protection-alert">
+          <i class="fa-solid fa-lock"></i>
+          <div>
+            <strong>Master Owner Protection:</strong>
+            <p>Only Master Admin (<strong>iamkausarhayat@gmail.com</strong>) is authorized to change the Master PIN. This will synchronize across all devices.</p>
+          </div>
         </div>
+
         <div class="form-group mb-3">
-          <label>New Secret PIN</label>
-          <input type="password" id="newPinInput" placeholder="Enter new secret PIN">
+          <label><i class="fa-solid fa-shield-halved"></i> Master Owner Passkey</label>
+          <input type="password" id="masterPasskeyForPinInput" placeholder="Enter Master Security Passkey (e.g. kausar@admin2026)">
         </div>
-        <div class="form-group">
-          <label>Confirm New PIN</label>
+
+        <div class="form-group mb-3">
+          <label><i class="fa-solid fa-key"></i> New Master Secret PIN (4-12 digits)</label>
+          <input type="password" id="newPinInput" placeholder="Enter new secret PIN (e.g. 9922)">
+        </div>
+
+        <div class="form-group mb-3">
+          <label><i class="fa-solid fa-check"></i> Confirm New PIN</label>
           <input type="password" id="confirmNewPinInput" placeholder="Confirm new secret PIN">
         </div>
+
         <div id="pinErrorMsg" class="error-msg" style="display: none;"></div>
         <div id="pinSuccessMsg" class="success-msg" style="display: none;"></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closePinModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="handleChangePin()">Save PIN</button>
+        <button class="btn btn-primary" onclick="handleChangePin()">
+          <i class="fa-solid fa-floppy-disk"></i> Save & Sync PIN Everywhere
+        </button>
       </div>
     </div>
   </div>
