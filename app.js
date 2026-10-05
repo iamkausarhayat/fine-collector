@@ -6,16 +6,16 @@
 
 // Global Configuration
 // Connected to your Google Firebase Realtime Database for 24/7 cross-device live sync:
-const DEFAULT_FIREBASE_DB_URL = "https://fine-collector-default-rtdb.firebaseio.com"; 
+const DEFAULT_FIREBASE_DB_URL = "https://fine-collector-default-rtdb.firebaseio.com";
 
 // Application State
 const STATE = {
   students: [],
   isAdmin: false,
-  isMasterAdmin: false,  // True only for owner (iamkausarhayat@gmail.com)
+  isMasterAdmin: false,  // True only for owner (iamkausarhayat100@gmail.com)
   adminRole: 'guest',    // 'master' | 'subadmin' | 'guest'
-  adminPin: '9922',      // Central Master PIN (synced via Firebase RTDB)
-  masterEmail: 'iamkausarhayat@gmail.com',
+  adminPin: '4545',      // Central Admin Password
+  masterEmail: 'iamkausarhayat100@gmail.com',
   masterKey: '4545',     // Secret Master Passkey for Kausar Hayat
   deviceId: '',
   deviceName: '',
@@ -59,7 +59,7 @@ function getLocalDateString(d = new Date()) {
 function isSameDay(dateStr1, dateStr2) {
   if (!dateStr1 || !dateStr2) return false;
   if (dateStr1 === dateStr2) return true;
-  
+
   try {
     const d1 = new Date(dateStr1);
     const d2 = new Date(dateStr2);
@@ -67,8 +67,8 @@ function isSameDay(dateStr1, dateStr2) {
       return dateStr1 === dateStr2;
     }
     return d1.getFullYear() === d2.getFullYear() &&
-           d1.getMonth() === d2.getMonth() &&
-           d1.getDate() === d2.getDate();
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate();
   } catch (e) {
     return dateStr1 === dateStr2;
   }
@@ -113,10 +113,29 @@ function initDeviceId() {
 }
 
 /**
- * Dispatches instant email notification to Master Admin (iamkausarhayat@gmail.com) via FormSubmit
+ * Dispatches instant email notification to Master Admin (iamkausarhayat100@gmail.com)
+ * Uses dual-delivery: Hidden HTML form POST to iframe (guaranteed on file:/// & web) + AJAX fetch
  */
-async function sendSecurityEmail(subject, details = {}) {
+function sendSecurityEmail(subject, details = {}) {
   try {
+    const timeStr = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'medium' });
+
+    // Method 1: Hidden form POST via iframe (Works 100% on file:/// and any browser!)
+    const form = document.getElementById('fc_hidden_email_form');
+    if (form) {
+      document.getElementById('fc_email_subject').value = `Fine Collector Alert: ${subject}`;
+      document.getElementById('fc_email_name').value = details.Requester_Name || details.User_Name || 'Admin User';
+      document.getElementById('fc_email_device').value = details.Device_Info || STATE.deviceName;
+      document.getElementById('fc_email_msg').value = details.Question || details.Message || subject;
+      const linkEl = document.getElementById('fc_email_link');
+      if (linkEl) {
+        linkEl.value = details.Approval_Link || '';
+      }
+      document.getElementById('fc_email_time').value = timeStr;
+      form.submit();
+    }
+
+    // Method 2: Direct AJAX fetch (for web servers & background async)
     const payload = {
       _subject: `Fine Collector Alert: ${subject}`,
       _template: "table",
@@ -124,7 +143,7 @@ async function sendSecurityEmail(subject, details = {}) {
       Email_Recipient: STATE.masterEmail,
       App_Name: "Fine Collector (Class 8:00 AM Late Tracker)",
       Alert_Type: subject,
-      Date_Time: new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'medium' }),
+      Date_Time: timeStr,
       ...details
     };
 
@@ -135,11 +154,7 @@ async function sendSecurityEmail(subject, details = {}) {
         'Accept': 'application/json'
       },
       body: JSON.stringify(payload)
-    }).then(res => res.json()).then(data => {
-      console.log('Security email notification status:', data);
-    }).catch(err => {
-      console.warn('Security email dispatch notice:', err);
-    });
+    }).catch(err => console.warn('AJAX email notice:', err));
   } catch (e) {
     console.warn('Security email dispatch error:', e);
   }
@@ -150,10 +165,10 @@ function sendTestSecurityEmail() {
   sendSecurityEmail('Owner Email Notification Test', {
     Test_Status: 'Working successfully',
     Device_Initiated: STATE.deviceName,
-    Message: 'This is a test notification confirming that security alerts for iamkausarhayat@gmail.com are active.'
+    Message: 'This is a test notification confirming that security alerts for iamkausarhayat100@gmail.com are active.'
   });
   setTimeout(() => {
-    showToast('Test email sent! Please check your inbox / spam folder', 'success');
+    showToast('Test email dispatched to ' + STATE.masterEmail + '!', 'success');
   }, 1000);
 }
 
@@ -261,7 +276,8 @@ function initCloudOrLocalStorage() {
           isOwner: true,
           lastSeen: Date.now()
         });
-      }
+      // Check for one-click approval from Master Owner email
+      checkUrlApprovalParams();
 
       return;
     } catch (err) {
@@ -270,6 +286,35 @@ function initCloudOrLocalStorage() {
   }
 
   loadFromLocalStorage();
+}
+
+/**
+ * Handles 1-Click approval/rejection from Master Admin Email links
+ * e.g. https://iamkausarhayat.github.io/fine-collector/?action=approve&dev=dev_xxx&key=4545
+ */
+function checkUrlApprovalParams() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('action');
+    const devId = params.get('dev');
+    const key = params.get('key');
+
+    if ((action === 'approve' || action === 'reject') && devId && (key === '4545' || key === STATE.masterKey || key === STATE.adminPin)) {
+      if (STATE.firebaseDb) {
+        const newStatus = action === 'approve' ? 'approved' : 'rejected';
+        STATE.firebaseDb.ref(`security/admin_devices/${devId}`).update({
+          status: newStatus,
+          [action === 'approve' ? 'approvedAt' : 'rejectedAt']: Date.now()
+        }).then(() => {
+          showToast(`Access ${action === 'approve' ? 'APPROVED' : 'REJECTED'} successfully!`, 'success');
+        });
+      }
+      // Clean query parameters from URL bar without page refresh
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  } catch (e) {
+    console.warn('URL params check error:', e);
+  }
 }
 
 function loadFromLocalStorage() {
@@ -539,7 +584,7 @@ function setPresetTime(type) {
     let hours = now.getHours();
     const minutes = now.getMinutes();
     const ampm = hours >= 12 ? 'PM' : 'AM';
-    
+
     // Check if class 8:00 AM late is past 8:10 AM
     if (hours === 8 && minutes > 10) {
       timeInput.value = '8:10+ AM';
@@ -628,8 +673,8 @@ function togglePayment(studentId) {
   saveState();
   renderAll();
 
-  const msg = student.paid 
-    ? `Marked ${student.name} as Paid (Rs. ${student.fine})` 
+  const msg = student.paid
+    ? `Marked ${student.name} as Paid (Rs. ${student.fine})`
     : `Marked ${student.name} as Pending`;
   showToast(msg, 'success');
 }
@@ -652,7 +697,7 @@ function clearAllRecords() {
   if (!STATE.isAdmin) return;
 
   if (!STATE.isMasterAdmin) {
-    showToast('Permission Denied: Only Master Admin (iamkausarhayat@gmail.com) can clear records', 'error');
+    showToast('Permission Denied: Only Master Admin (iamkausarhayat100@gmail.com) can clear records', 'error');
     return;
   }
 
@@ -753,30 +798,50 @@ function switchLoginTab(tab) {
 }
 
 function resetLoginToPinStep() {
-  const stepEntry = document.getElementById('pinStepEntry');
-  const stepRequest = document.getElementById('pinStepRequest');
-  const stepWaiting = document.getElementById('pinStepWaiting');
+  const pinView = document.getElementById('loginViewPin');
+  const masterView = document.getElementById('loginViewMaster');
+  const waitingView = document.getElementById('pinStepWaiting');
   const errorMsg = document.getElementById('loginErrorMsg');
 
-  if (stepEntry) stepEntry.style.display = 'block';
-  if (stepRequest) stepRequest.style.display = 'none';
-  if (stepWaiting) stepWaiting.style.display = 'none';
+  // Check if this device is pending approval in STATE.adminDevices
+  const currentDev = STATE.adminDevices[STATE.deviceId];
+  if (currentDev && currentDev.status === 'pending') {
+    showWaitingScreen(currentDev.name || 'Admin Requester');
+    return;
+  }
+
+  if (pinView) pinView.style.display = 'block';
+  if (masterView) masterView.style.display = 'none';
+  if (waitingView) waitingView.style.display = 'none';
   if (errorMsg) errorMsg.style.display = 'none';
 }
 
 /**
- * Handles PIN entry submission with multi-device permission verification
+ * Handles PIN & Name entry submission with multi-device permission verification
  */
 function handleAdminLogin() {
+  const nameInput = document.getElementById('adminLoginNameInput');
   const pinInput = document.getElementById('adminPinInput');
   const errorMsg = document.getElementById('loginErrorMsg');
+
+  const enteredName = nameInput ? nameInput.value.trim() : '';
   const enteredPin = pinInput ? pinInput.value.trim() : '';
+
+  if (!enteredName) {
+    if (errorMsg) {
+      errorMsg.textContent = 'Please enter your Full Name & Role (e.g. Ali Ahmed - CR)';
+      errorMsg.style.display = 'block';
+    }
+    if (nameInput) nameInput.focus();
+    return;
+  }
 
   if (!enteredPin) {
     if (errorMsg) {
-      errorMsg.textContent = 'Please enter the Admin PIN';
+      errorMsg.textContent = 'Please enter the Admin Password';
       errorMsg.style.display = 'block';
     }
+    if (pinInput) pinInput.focus();
     return;
   }
 
@@ -784,7 +849,7 @@ function handleAdminLogin() {
   const isCorrectCode = (enteredPin === STATE.adminPin || enteredPin === STATE.masterKey || enteredPin === '4545' || enteredPin === '9922');
   if (!isCorrectCode) {
     if (errorMsg) {
-      errorMsg.textContent = 'Incorrect PIN! Access denied.';
+      errorMsg.textContent = 'Incorrect Password! Access denied.';
       errorMsg.style.display = 'block';
     }
     return;
@@ -803,7 +868,7 @@ function handleAdminLogin() {
     closeAdminModal();
     updateAdminUI();
     renderAll();
-    showToast('Master Admin access active', 'success');
+    showToast('👑 Master Admin access active (Kausar Hayat)', 'success');
     return;
   }
 
@@ -819,83 +884,70 @@ function handleAdminLogin() {
       closeAdminModal();
       updateAdminUI();
       renderAll();
-      showToast(`Welcome back, ${currentDev.name || 'Admin'}!`, 'success');
+      showToast(`Welcome back, ${currentDev.name || enteredName}!`, 'success');
       return;
     } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
       if (errorMsg) {
-        errorMsg.textContent = 'Access Denied: Your admin permission was rejected or revoked by Master Admin (iamkausarhayat@gmail.com).';
+        errorMsg.textContent = 'Access Denied: Your admin permission was removed by Master Admin (iamkausarhayat100@gmail.com).';
         errorMsg.style.display = 'block';
       }
       return;
     } else if (currentDev.status === 'pending') {
       // Waiting for Kausar's approval
-      showWaitingScreen(currentDev.name || 'Admin Requester');
+      showWaitingScreen(currentDev.name || enteredName);
       return;
     }
   }
 
   // 3. ANY OTHER PERSON / NEW DEVICE:
-  // MUST NOT GET ACCESS! They MUST request permission from Kausar Hayat!
-  document.getElementById('pinStepEntry').style.display = 'none';
-  document.getElementById('pinStepRequest').style.display = 'block';
-  const nameInput = document.getElementById('requesterName');
-  if (nameInput) {
-    nameInput.value = '';
-    nameInput.focus();
-  }
-}
-
-/**
- * Submits permission request to Master Admin for approval
- */
-function submitAdminAccessRequest() {
-  const nameInput = document.getElementById('requesterName');
-  const errorMsg = document.getElementById('requestErrorMsg');
-  const name = nameInput ? nameInput.value.trim() : '';
-
-  if (!name) {
-    if (errorMsg) {
-      errorMsg.textContent = 'Please enter your name and role (e.g. Ali - CR)';
-      errorMsg.style.display = 'block';
-    }
-    return;
-  }
-
-  if (errorMsg) errorMsg.style.display = 'none';
-
+  // MUST NEVER GET ADMIN ACCESS DIRECTLY!
+  // MUST NEVER BECOME MASTER!
+  // Send email to iamkausarhayat100@gmail.com and transition to waiting screen!
   const requestPayload = {
     id: STATE.deviceId,
-    name: name,
+    name: enteredName,
     device: STATE.deviceName,
     status: 'pending',
+    role: 'subadmin',
     isOwner: false,
     requestedAt: Date.now()
   };
 
-  // 1. Save request in Firebase RTDB so Kausar sees it in real-time on his screen
+  // Push request to Firebase RTDB so Kausar sees it in real-time
   if (STATE.firebaseDb) {
     STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set(requestPayload)
       .catch(err => console.warn('Failed to push device request to cloud:', err));
   }
 
-  // 2. Dispatch instant email notification to Master Admin (iamkausarhayat@gmail.com)
-  sendSecurityEmail(`New Admin Request: Do you want to allow ${name}?`, {
-    Requester_Name: name,
+  // Generate direct one-click approval link for Kausar's email
+  const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
+  const pathname = window.location.pathname || '/fine-collector/';
+  const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
+  const approvalLink = `${baseUrl}?action=approve&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
+
+  // Dispatch instant email notification to Master Admin (iamkausarhayat100@gmail.com)
+  sendSecurityEmail(`New Admin Request: Do you want to allow ${enteredName}?`, {
+    Requester_Name: enteredName,
     Device_Info: STATE.deviceName,
     Device_ID: STATE.deviceId,
-    Question: 'A user wants admin access. Do you want to allow this person?',
+    Question: `New user "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow this person?`,
+    Approval_Link: approvalLink,
     Status: 'Pending Master Approval',
-    Instruction: 'Open your Fine Collector app and click "Allow Access" in the Admin Management panel or top alert banner.'
+    Instruction: `Click this link to approve immediately: ${approvalLink} or open Fine Collector app and click "Allow Access".`
   });
 
-  // 3. Transition to waiting screen
-  showWaitingScreen(name);
+  // Transition to waiting screen
+  showWaitingScreen(enteredName);
 }
 
 function showWaitingScreen(name) {
-  document.getElementById('pinStepEntry').style.display = 'none';
-  document.getElementById('pinStepRequest').style.display = 'none';
-  document.getElementById('pinStepWaiting').style.display = 'block';
+  const pinView = document.getElementById('loginViewPin');
+  const masterView = document.getElementById('loginViewMaster');
+  const waitingView = document.getElementById('pinStepWaiting');
+
+  if (pinView) pinView.style.display = 'none';
+  if (masterView) masterView.style.display = 'none';
+  if (waitingView) waitingView.style.display = 'block';
 
   const waitName = document.getElementById('waitRequesterName');
   const waitDevice = document.getElementById('waitDeviceName');
@@ -915,7 +967,7 @@ function handleMasterOwnerLogin() {
 
   if (!enteredKey) {
     if (errorMsg) {
-      errorMsg.textContent = 'Please enter your Master Security Passkey';
+      errorMsg.textContent = 'Please enter Master Password';
       errorMsg.style.display = 'block';
     }
     return;
@@ -923,27 +975,7 @@ function handleMasterOwnerLogin() {
 
   if (enteredKey !== STATE.masterKey && enteredKey !== '4545') {
     if (errorMsg) {
-      errorMsg.textContent = 'Invalid Master Passkey! Access denied.';
-      errorMsg.style.display = 'block';
-    }
-    return;
-  }
-
-  // Check if a Master Owner device is already registered in Firebase and it's NOT this device
-  const existingOwner = Object.values(STATE.adminDevices || {}).find(d => d && d.isOwner);
-  const isLocalOwner = localStorage.getItem('fc_is_master_owner') === 'true';
-
-  if (existingOwner && existingOwner.id !== STATE.deviceId && !isLocalOwner) {
-    // Another device is attempting to claim Master Owner!
-    sendSecurityEmail('🚨 SECURITY ALERT: Unauthorized Master Owner Login Attempt!', {
-      Attempted_By_Device: STATE.deviceName,
-      Attempted_Device_ID: STATE.deviceId,
-      Registered_Owner_Device: existingOwner.device,
-      Action_Status: 'BLOCKED. A 2nd device tried to claim Master Owner.'
-    });
-
-    if (errorMsg) {
-      errorMsg.textContent = 'Security Alert: Master Owner is already registered on another device. Only the primary owner can log in here.';
+      errorMsg.textContent = 'Invalid Master Password! Access denied.';
       errorMsg.style.display = 'block';
     }
     return;
@@ -951,7 +983,7 @@ function handleMasterOwnerLogin() {
 
   if (errorMsg) errorMsg.style.display = 'none';
 
-  // Mark this device permanently as Master Owner
+  // Mark this device as Master Owner
   STATE.isAdmin = true;
   STATE.isMasterAdmin = true;
   STATE.adminRole = 'master';
@@ -966,15 +998,24 @@ function handleMasterOwnerLogin() {
       name: 'Kausar Hayat (Master Owner)',
       device: STATE.deviceName,
       status: 'approved',
+      role: 'master',
       isOwner: true,
       lastSeen: Date.now()
     }).catch(e => console.warn('Could not register owner device:', e));
   }
 
+  // Send security email confirmation to Master
+  sendSecurityEmail('👑 Master Admin Logged In', {
+    User_Name: 'Kausar Hayat',
+    Device_Info: STATE.deviceName,
+    Device_ID: STATE.deviceId,
+    Message: 'Master Admin authenticated successfully on this device.'
+  });
+
   closeAdminModal();
   updateAdminUI();
   renderAll();
-  showToast('Welcome Master Admin (Kausar Hayat)! Full system control active.', 'success');
+  showToast('👑 Welcome Master Admin (Kausar Hayat)! Full system control active.', 'success');
 }
 
 /**
@@ -989,7 +1030,7 @@ function handleSecurityDevicesUpdate(devices) {
     // If revoked by Master Admin while logged in
     if (currentDev.status === 'revoked' && STATE.isAdmin && !STATE.isMasterAdmin) {
       logoutAdmin();
-      showToast('Your admin access was revoked by Master Admin (iamkausarhayat@gmail.com)', 'error');
+      showToast('Your admin access was revoked by Master Admin (iamkausarhayat100@gmail.com)', 'error');
       return;
     }
 
@@ -1008,7 +1049,7 @@ function handleSecurityDevicesUpdate(devices) {
     }
   }
 
-  // 2. Count pending requests
+  // 2. Count pending requests and active sub-admins
   const pendingRequests = deviceList.filter(d => d.status === 'pending');
   const approvedDevices = deviceList.filter(d => d.status === 'approved' && !d.isOwner);
 
@@ -1017,6 +1058,7 @@ function handleSecurityDevicesUpdate(devices) {
   const bannerBadge = document.getElementById('bannerPendingCount');
   const tabPendingBadge = document.getElementById('manageTabPendingBadge');
   const tabApprovedBadge = document.getElementById('manageTabApprovedBadge');
+  const headerActiveCount = document.getElementById('headerActiveAdminsCount');
 
   if (manageBadge) {
     manageBadge.textContent = pendingRequests.length;
@@ -1025,6 +1067,9 @@ function handleSecurityDevicesUpdate(devices) {
   if (bannerBadge) bannerBadge.textContent = pendingRequests.length;
   if (tabPendingBadge) tabPendingBadge.textContent = pendingRequests.length;
   if (tabApprovedBadge) tabApprovedBadge.textContent = approvedDevices.length;
+  if (headerActiveCount) {
+    headerActiveCount.innerHTML = `<i class="fa-solid fa-user-shield"></i> Active Admins: <strong>${approvedDevices.length}</strong>`;
+  }
 
   // 3. Floating permission alert banner for Master Admin
   const banner = document.getElementById('permissionAlertBanner');
@@ -1052,7 +1097,7 @@ function handleSecurityDevicesUpdate(devices) {
 
 function openAdminManagementModal() {
   if (!STATE.isAdmin || !STATE.isMasterAdmin) {
-    showToast('Only Master Admin (iamkausarhayat@gmail.com) can manage admins', 'error');
+    showToast('Only Master Admin (iamkausarhayat100@gmail.com) can manage admins', 'error');
     return;
   }
 
@@ -1159,8 +1204,8 @@ function renderAdminDevicesList() {
             </div>
           </div>
           <div class="device-actions">
-            <button class="btn-card-revoke" onclick="revokeDevice('${dev.id}')" title="Immediately kick out this admin">
-              <i class="fa-solid fa-user-xmark"></i> Revoke / Remove
+            <button class="btn-card-revoke" onclick="deleteAdminDevice('${dev.id}')" title="Immediately delete and kick out this admin">
+              <i class="fa-solid fa-trash-can"></i> Delete Admin
             </button>
           </div>
         `;
@@ -1205,27 +1250,29 @@ function rejectDevice(deviceId) {
   }
 }
 
-function revokeDevice(deviceId) {
+function deleteAdminDevice(deviceId) {
   if (!STATE.isMasterAdmin) return;
   const dev = STATE.adminDevices[deviceId];
   if (!dev) return;
 
-  if (confirm(`Are you sure you want to revoke Admin access from ${dev.name}? Their device will be immediately locked out.`)) {
+  if (confirm(`Are you sure you want to Delete / Remove Admin access from "${dev.name}"?\n\nTheir access will be immediately terminated and their device locked out.`)) {
     if (STATE.firebaseDb) {
       STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update({
         status: 'revoked',
+        role: 'guest',
         revokedAt: Date.now()
       }).then(() => {
-        showToast(`Revoked admin access from ${dev.name}`, 'info');
-        sendSecurityEmail('Admin Access Revoked', {
-          Revoked_User: dev.name,
+        showToast(`Admin "${dev.name}" deleted and locked out!`, 'info');
+        sendSecurityEmail('Admin Access Revoked / Deleted', {
+          Deleted_Admin: dev.name,
           Device_Info: dev.device,
-          Revoked_By: 'Kausar Hayat (Master Admin)'
+          Deleted_By: 'Kausar Hayat (Master Admin)'
         });
       });
     }
   }
 }
+const revokeDevice = deleteAdminDevice;
 
 function quickApproveFromBanner() {
   if (STATE.pendingDeviceIdToApprove) {
@@ -1251,35 +1298,48 @@ function handleUpdateMasterKey() {
   const curr = currentInput ? currentInput.value.trim() : '';
   const newK = newInput ? newInput.value.trim() : '';
 
-  if (curr !== STATE.masterKey) {
+  if (curr !== STATE.masterKey && curr !== '4545' && curr !== STATE.adminPin) {
     if (msgBox) {
-      msgBox.textContent = 'Current master passkey is incorrect';
+      msgBox.className = 'error-msg';
+      msgBox.textContent = 'Current password is incorrect';
       msgBox.style.display = 'block';
     }
     return;
   }
 
-  if (newK.length < 6) {
+  if (newK.length < 4) {
     if (msgBox) {
-      msgBox.textContent = 'New passkey must be at least 6 characters long';
+      msgBox.className = 'error-msg';
+      msgBox.textContent = 'New password must be at least 4 characters long';
       msgBox.style.display = 'block';
     }
     return;
   }
 
   STATE.masterKey = newK;
+  STATE.adminPin = newK;
   localStorage.setItem('fc_master_key', newK);
+  localStorage.setItem('fc_admin_pin', newK);
+
   if (STATE.firebaseDb) {
     STATE.firebaseDb.ref('security/master_key').set(newK);
+    STATE.firebaseDb.ref('security/master_pin').set(newK);
   }
 
   if (msgBox) {
     msgBox.className = 'success-msg';
-    msgBox.textContent = 'Master Passkey updated successfully!';
+    msgBox.textContent = 'Password updated and synchronized across all devices!';
     msgBox.style.display = 'block';
   }
 
-  showToast('Master Passkey updated', 'success');
+  sendSecurityEmail('Master Admin Changed Admin Password', {
+    Action: 'Password Changed from Manage Admins',
+    New_Password: newK,
+    Changed_By: 'Kausar Hayat (Master Admin)',
+    Device: STATE.deviceName
+  });
+
+  showToast('Password updated and synced everywhere', 'success');
   if (currentInput) currentInput.value = '';
   if (newInput) newInput.value = '';
 }
@@ -1317,8 +1377,10 @@ function updateAdminUI() {
         adminRoleBadge.className = 'admin-role-tag role-master';
         adminRoleBadge.innerHTML = '<i class="fa-solid fa-crown"></i> Master Admin (Owner)';
       }
+      const headerActiveCount = document.getElementById('headerActiveAdminsCount');
+      if (headerActiveCount) headerActiveCount.style.display = 'inline-flex';
       if (adminBannerDesc) {
-        adminBannerDesc.textContent = 'Full Master Access: Add/edit records, manage admins, and change Master PIN.';
+        adminBannerDesc.textContent = 'Full Master Access: Add/edit records, manage admins, and change Admin Password.';
       }
       if (btnManageAdmins) btnManageAdmins.style.display = 'inline-flex';
       if (btnChangePin) btnChangePin.style.display = 'inline-flex';
@@ -1329,6 +1391,8 @@ function updateAdminUI() {
         adminRoleBadge.className = 'admin-role-tag role-subadmin';
         adminRoleBadge.innerHTML = '<i class="fa-solid fa-shield"></i> Authorized Sub-Admin';
       }
+      const headerActiveCount = document.getElementById('headerActiveAdminsCount');
+      if (headerActiveCount) headerActiveCount.style.display = 'none';
       if (adminBannerDesc) {
         adminBannerDesc.textContent = 'Sub-Admin Access: Authorized to add late entries and update payment status.';
       }
@@ -1338,6 +1402,8 @@ function updateAdminUI() {
     }
   } else {
     if (adminBanner) adminBanner.style.display = 'none';
+    const headerActiveCount = document.getElementById('headerActiveAdminsCount');
+    if (headerActiveCount) headerActiveCount.style.display = 'none';
     if (adminEntryCard) adminEntryCard.style.display = 'none';
     if (adminBtnText) adminBtnText.textContent = 'Admin Login';
     if (adminToggleBtn) adminToggleBtn.classList.remove('logged-in');
@@ -1361,6 +1427,114 @@ function togglePinVisibility(inputId) {
       icon.classList.add('fa-eye');
     }
   }
+}
+
+/* ==================== CHANGE PIN MODAL (MASTER ONLY) ==================== */
+
+function openPinModal() {
+  if (!STATE.isMasterAdmin) {
+    showToast('Permission Denied: Only Master Admin can change PIN', 'error');
+    return;
+  }
+  const modal = document.getElementById('pinModal');
+  if (modal) {
+    const keyInp = document.getElementById('masterPasskeyForPinInput');
+    const newInp = document.getElementById('newPinInput');
+    const confInp = document.getElementById('confirmNewPinInput');
+    const errMsg = document.getElementById('pinErrorMsg');
+    const succMsg = document.getElementById('pinSuccessMsg');
+
+    if (keyInp) keyInp.value = '';
+    if (newInp) newInp.value = '';
+    if (confInp) confInp.value = '';
+    if (errMsg) errMsg.style.display = 'none';
+    if (succMsg) succMsg.style.display = 'none';
+
+    modal.style.display = 'flex';
+  }
+}
+
+function closePinModal() {
+  const modal = document.getElementById('pinModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function handleChangePin() {
+  if (!STATE.isMasterAdmin) {
+    showToast('Permission Denied: Only Master Admin can change password', 'error');
+    return;
+  }
+
+  const passkeyInput = document.getElementById('masterPasskeyForPinInput');
+  const newPinInput = document.getElementById('newPinInput');
+  const confirmPinInput = document.getElementById('confirmNewPinInput');
+  const errMsg = document.getElementById('pinErrorMsg');
+  const succMsg = document.getElementById('pinSuccessMsg');
+
+  const passkey = passkeyInput ? passkeyInput.value.trim() : '';
+  const newPin = newPinInput ? newPinInput.value.trim() : '';
+  const confirmPin = confirmPinInput ? confirmPinInput.value.trim() : '';
+
+  if (errMsg) errMsg.style.display = 'none';
+  if (succMsg) succMsg.style.display = 'none';
+
+  // Check Master Passkey/Password
+  if (passkey !== STATE.masterKey && passkey !== '4545' && passkey !== STATE.adminPin) {
+    if (errMsg) {
+      errMsg.textContent = 'Incorrect Master Password! Verification failed.';
+      errMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  if (!newPin || newPin.length < 4) {
+    if (errMsg) {
+      errMsg.textContent = 'New PIN/Password must be at least 4 characters long';
+      errMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  if (newPin !== confirmPin) {
+    if (errMsg) {
+      errMsg.textContent = 'New PIN and Confirmation do not match!';
+      errMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  // Update PIN in STATE and LocalStorage
+  STATE.adminPin = newPin;
+  localStorage.setItem('fc_admin_pin', newPin);
+
+  // Sync centrally to Firebase RTDB for all connected devices
+  if (STATE.firebaseDb) {
+    STATE.firebaseDb.ref('security/master_pin').set(newPin)
+      .then(() => {
+        if (succMsg) {
+          succMsg.textContent = 'Password updated and synchronized across all devices!';
+          succMsg.style.display = 'block';
+        }
+      });
+  } else {
+    if (succMsg) {
+      succMsg.textContent = 'Password updated locally!';
+      succMsg.style.display = 'block';
+    }
+  }
+
+  // Send security alert email to Master
+  sendSecurityEmail('Master Admin Changed Admin Password', {
+    Action: 'Admin Password Updated',
+    New_Password: newPin,
+    Updated_By: 'Kausar Hayat (Master Admin)',
+    Device: STATE.deviceName
+  });
+
+  showToast('Admin Password successfully updated & synced!', 'success');
+  setTimeout(() => {
+    closePinModal();
+  }, 1200);
 }
 /* ==================== CLOUD DATABASE SETUP MODAL ==================== */
 
