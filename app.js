@@ -39,7 +39,18 @@ document.addEventListener('DOMContentLoaded', () => {
   initDateInput();
   initCloudOrLocalStorage();
   renderAll();
+  initEventListeners();
 });
+
+function initEventListeners() {
+  const adminBtn = document.getElementById('adminToggleBtn');
+  if (adminBtn) {
+    adminBtn.onclick = function(e) {
+      if (e) e.preventDefault();
+      toggleAdminModal();
+    };
+  }
+}
 
 /* ==================== DATE UTILITIES ==================== */
 
@@ -1737,3 +1748,42 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.remove(), 300);
   }, 3000);
 }
+
+// Explicit window bindings for guaranteed HTML onclick availability across all browsers
+window.toggleAdminModal = toggleAdminModal;
+window.closeAdminModal = closeAdminModal;
+window.switchLoginTab = switchLoginTab;
+window.handleAdminLogin = handleAdminLogin;
+window.handleMasterOwnerLogin = handleMasterOwnerLogin;
+window.openAdminManagementModal = openAdminManagementModal;
+window.closeAdminManagementModal = closeAdminManagementModal;
+window.switchManageTab = switchManageTab;
+window.approveDevice = approveDevice;
+window.rejectDevice = rejectDevice;
+window.deleteAdminDevice = deleteAdminDevice;
+window.revokeDevice = deleteAdminDevice;
+window.quickApproveFromBanner = quickApproveFromBanner;
+window.quickRejectFromBanner = quickRejectFromBanner;
+window.handleUpdateMasterKey = handleUpdateMasterKey;
+window.logoutAdmin = logoutAdmin;
+window.openPinModal = openPinModal;
+window.closePinModal = closePinModal;
+window.handleChangePin = handleChangePin;
+window.openCloudModal = openCloudModal;
+window.closeCloudModal = closeCloudModal;
+window.saveCloudConfig = saveCloudConfig;
+window.disconnectCloud = disconnectCloud;
+window.handleNewEntry = handleNewEntry;
+window.togglePayment = togglePayment;
+window.deleteEntry = deleteEntry;
+window.openEditModal = openEditModal;
+window.closeEditModal = closeEditModal;
+window.saveEditedEntry = saveEditedEntry;
+window.clearAllRecords = clearAllRecords;
+window.applyFilters = applyFilters;
+window.clearSearch = clearSearch;
+window.setPresetTime = setPresetTime;
+window.togglePinVisibility = togglePinVisibility;
+window.sendTestSecurityEmail = sendTestSecurityEmail;
+window.handleModalOverlayClick = handleModalOverlayClick;
+
