@@ -140,7 +140,11 @@ function sendSecurityEmail(subject, details = {}) {
       document.getElementById('fc_email_msg').value = details.Question || details.Message || subject;
       const linkEl = document.getElementById('fc_email_link');
       if (linkEl) {
-        linkEl.value = details.Approval_Link || '';
+        linkEl.value = details.CLICK_TO_ALLOW || details.CLICK_TO_ALLOW_MASTER || details.Approval_Link || '';
+      }
+      const denyEl = document.getElementById('fc_email_deny_link');
+      if (denyEl) {
+        denyEl.value = details.CLICK_TO_DENY || details.Denial_Link || '';
       }
       document.getElementById('fc_email_time').value = timeStr;
       form.submit();
@@ -325,18 +329,41 @@ function checkUrlApprovalParams() {
           updatePayload.role = 'master';
           updatePayload.isOwner = true;
           updatePayload.name = 'Kausar Hayat (Master Owner)';
+        } else if (action === 'approve') {
+          updatePayload.role = 'subadmin';
+          updatePayload.isOwner = false;
+        } else if (action === 'reject') {
+          updatePayload.role = 'guest';
+          updatePayload.isOwner = false;
+          updatePayload.denialReason = 'Access Denied by Kausar Khattak';
         }
+
         STATE.firebaseDb.ref(`security/admin_devices/${devId}`).update(updatePayload).then(() => {
-          showToast(`Access ${isMaster ? 'MASTER AUTHORIZED' : action.toUpperCase()} successfully!`, 'success');
-          if (devId === STATE.deviceId && isMaster) {
-            localStorage.setItem('fc_is_master_owner', 'true');
-            STATE.isAdmin = true;
-            STATE.isMasterAdmin = true;
-            STATE.adminRole = 'master';
-            sessionStorage.setItem('fc_is_admin', 'true');
-            sessionStorage.setItem('fc_admin_role', 'master');
-            updateAdminUI();
-            renderAll();
+          const actionMsg = isMaster ? 'MASTER AUTHORIZED' : (action === 'approve' ? 'SUB-ADMIN APPROVED' : 'ACCESS DENIED');
+          showToast(`Access ${actionMsg} successfully!`, action === 'reject' ? 'error' : 'success');
+          if (devId === STATE.deviceId) {
+            if (isMaster) {
+              localStorage.setItem('fc_is_master_owner', 'true');
+              STATE.isAdmin = true;
+              STATE.isMasterAdmin = true;
+              STATE.adminRole = 'master';
+              sessionStorage.setItem('fc_is_admin', 'true');
+              sessionStorage.setItem('fc_admin_role', 'master');
+              closeAdminModal();
+              updateAdminUI();
+              renderAll();
+            } else if (action === 'approve') {
+              STATE.isAdmin = true;
+              STATE.isMasterAdmin = false;
+              STATE.adminRole = 'subadmin';
+              sessionStorage.setItem('fc_is_admin', 'true');
+              sessionStorage.setItem('fc_admin_role', 'subadmin');
+              closeAdminModal();
+              updateAdminUI();
+              renderAll();
+            } else if (action === 'reject') {
+              showDenialScreen('Access Denied by Kausar Khattak');
+            }
           }
         });
       }
@@ -346,6 +373,25 @@ function checkUrlApprovalParams() {
   } catch (e) {
     console.warn('URL params check error:', e);
   }
+}
+
+function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
+  const pinView = document.getElementById('loginViewPin');
+  const masterView = document.getElementById('loginViewMaster');
+  const waitingView = document.getElementById('pinStepWaiting');
+  const deniedView = document.getElementById('pinStepDenied');
+  const denialHeading = document.getElementById('denialHeading');
+  const denialMsg = document.getElementById('denialMessage');
+
+  if (pinView) pinView.style.display = 'none';
+  if (masterView) masterView.style.display = 'none';
+  if (waitingView) waitingView.style.display = 'none';
+  if (deniedView) deniedView.style.display = 'block';
+  if (denialHeading) denialHeading.textContent = message;
+  if (denialMsg) denialMsg.textContent = 'Your request has been reviewed and declined by Kausar Khattak.';
+
+  STATE.pendingLogin = false;
+  showToast(message, 'error');
 }
 
   function loadFromLocalStorage() {
@@ -832,18 +878,25 @@ function checkUrlApprovalParams() {
     const pinView = document.getElementById('loginViewPin');
     const masterView = document.getElementById('loginViewMaster');
     const waitingView = document.getElementById('pinStepWaiting');
+    const deniedView = document.getElementById('pinStepDenied');
     const errorMsg = document.getElementById('loginErrorMsg');
 
-    // Check if this device is pending approval in STATE.adminDevices
+    // Check if this device is pending or rejected in STATE.adminDevices
     const currentDev = STATE.adminDevices[STATE.deviceId];
-    if (currentDev && (currentDev.status === 'pending' || currentDev.status === 'pending_master')) {
-      showWaitingScreen(currentDev.name || 'Admin Requester');
-      return;
+    if (currentDev) {
+      if (currentDev.status === 'pending' || currentDev.status === 'pending_master') {
+        showWaitingScreen(currentDev.name || 'Admin Requester');
+        return;
+      } else if (currentDev.status === 'rejected' || currentDev.status === 'revoked') {
+        showDenialScreen('Access Denied by Kausar Khattak');
+        return;
+      }
     }
 
     if (pinView) pinView.style.display = 'block';
     if (masterView) masterView.style.display = 'none';
     if (waitingView) waitingView.style.display = 'none';
+    if (deniedView) deniedView.style.display = 'none';
     if (errorMsg) errorMsg.style.display = 'none';
   }
 
@@ -888,40 +941,22 @@ function checkUrlApprovalParams() {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
-    // 1. Check if THIS device is already the verified Master Owner (Kausar's personal device)
-    const isLocalMaster = localStorage.getItem('fc_is_master_owner') === 'true';
-    if (STATE.isMasterAdmin || isLocalMaster) {
-      STATE.isAdmin = true;
-      STATE.isMasterAdmin = true;
-      STATE.adminRole = 'master';
-      sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_role', 'master');
-      closeAdminModal();
-      updateAdminUI();
-      renderAll();
-      showToast('👑 Master Admin access active (Kausar Hayat)', 'success');
-      return;
-    }
-
-    // 2. Check if this device is ALREADY registered & approved in Cloud by Kausar
+    // 1. Check if this device is ALREADY registered & approved in Cloud by Kausar
     const currentDev = STATE.adminDevices[STATE.deviceId];
     if (currentDev) {
       if (currentDev.status === 'approved') {
         STATE.isAdmin = true;
-        STATE.isMasterAdmin = false; // Sub-admins can NEVER become Master Admin
-        STATE.adminRole = 'subadmin';
+        STATE.isMasterAdmin = !!currentDev.isOwner;
+        STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
         sessionStorage.setItem('fc_is_admin', 'true');
-        sessionStorage.setItem('fc_admin_role', 'subadmin');
+        sessionStorage.setItem('fc_admin_role', STATE.adminRole);
         closeAdminModal();
         updateAdminUI();
         renderAll();
         showToast(`Welcome back, ${currentDev.name || enteredName}!`, 'success');
         return;
       } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
-        if (errorMsg) {
-          errorMsg.textContent = 'Access Denied: Your admin permission was removed by Master Admin (iamkausarhayat100@gmail.com).';
-          errorMsg.style.display = 'block';
-        }
+        showDenialScreen('Access Denied by Kausar Khattak');
         return;
       } else if (currentDev.status === 'pending') {
         // Waiting for Kausar's approval
@@ -930,10 +965,8 @@ function checkUrlApprovalParams() {
       }
     }
 
-    // 3. ANY OTHER PERSON / NEW DEVICE:
-    // MUST NEVER GET ADMIN ACCESS DIRECTLY!
-    // MUST NEVER BECOME MASTER!
-    // Send email to iamkausarhayat100@gmail.com and transition to waiting screen!
+    // 2. FOR ALL OTHER / NEW ACCESS REQUESTS:
+    // ALWAYS require Master Owner permission via email to iamkausarhayat100@gmail.com!
     const requestPayload = {
       id: STATE.deviceId,
       name: enteredName,
@@ -950,21 +983,23 @@ function checkUrlApprovalParams() {
         .catch(err => console.warn('Failed to push device request to cloud:', err));
     }
 
-    // Generate direct one-click approval link for Kausar's email
+    // Generate direct one-click approval & denial links for Kausar's email
     const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
     const pathname = window.location.pathname || '/fine-collector/';
     const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
     const approvalLink = `${baseUrl}?action=approve&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
+    const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
 
     // Dispatch instant email notification to Master Admin (iamkausarhayat100@gmail.com)
-    sendSecurityEmail(`New Admin Request: Do you want to allow ${enteredName}?`, {
+    sendSecurityEmail(`Admin Access Request from ${enteredName}`, {
       Requester_Name: enteredName,
       Device_Info: STATE.deviceName,
       Device_ID: STATE.deviceId,
-      Question: `New user "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow this person?`,
-      Approval_Link: approvalLink,
+      Question: `User "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow this person?`,
+      CLICK_TO_ALLOW: approvalLink,
+      CLICK_TO_DENY: denialLink,
       Status: 'Pending Master Approval',
-      Instruction: `Click this link to approve immediately: ${approvalLink} or open Fine Collector app and click "Allow Access".`
+      Instruction: `Tap CLICK_TO_ALLOW to approve as Sub-Admin, or tap CLICK_TO_DENY to deny.`
     });
 
     // Transition to waiting screen
@@ -975,9 +1010,11 @@ function checkUrlApprovalParams() {
     const pinView = document.getElementById('loginViewPin');
     const masterView = document.getElementById('loginViewMaster');
     const waitingView = document.getElementById('pinStepWaiting');
+    const deniedView = document.getElementById('pinStepDenied');
 
     if (pinView) pinView.style.display = 'none';
     if (masterView) masterView.style.display = 'none';
+    if (deniedView) deniedView.style.display = 'none';
     if (waitingView) waitingView.style.display = 'block';
 
     const waitName = document.getElementById('waitRequesterName');
@@ -1014,41 +1051,15 @@ function checkUrlApprovalParams() {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
-    // Check if this device is already verified as Master Owner
+    // 1. Check if this device is ALREADY approved as Master Owner in Cloud
     const currentDev = STATE.adminDevices[STATE.deviceId];
-    const isAlreadyMaster = (localStorage.getItem('fc_is_master_owner') === 'true') ||
-      (currentDev && currentDev.isOwner === true && currentDev.status === 'approved');
-
-    // Also check if cloud has NO owner registered yet (first time initialization by Kausar)
-    const hasAnyRegisteredOwner = Object.values(STATE.adminDevices || {}).some(d => d && d.isOwner === true && d.status === 'approved');
-
-    if (isAlreadyMaster || !hasAnyRegisteredOwner) {
-      // Verified Master Owner device
+    if (currentDev && currentDev.isOwner === true && currentDev.status === 'approved') {
       STATE.isAdmin = true;
       STATE.isMasterAdmin = true;
       STATE.adminRole = 'master';
       localStorage.setItem('fc_is_master_owner', 'true');
       sessionStorage.setItem('fc_is_admin', 'true');
       sessionStorage.setItem('fc_admin_role', 'master');
-
-      if (STATE.firebaseDb) {
-        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
-          id: STATE.deviceId,
-          name: 'Kausar Hayat (Master Owner)',
-          device: STATE.deviceName,
-          status: 'approved',
-          role: 'master',
-          isOwner: true,
-          lastSeen: Date.now()
-        }).catch(e => console.warn('Could not register owner device:', e));
-      }
-
-      sendSecurityEmail('👑 Master Admin Logged In', {
-        User_Name: 'Kausar Hayat',
-        Device_Info: STATE.deviceName,
-        Device_ID: STATE.deviceId,
-        Message: 'Master Admin authenticated successfully on verified device.'
-      });
 
       closeAdminModal();
       updateAdminUI();
@@ -1057,12 +1068,18 @@ function checkUrlApprovalParams() {
       return;
     }
 
-    // If an owner already exists and this is an unrecognized device:
-    // MUST require authorization email to iamkausarhayat100@gmail.com!
+    if (currentDev && (currentDev.status === 'rejected' || currentDev.status === 'revoked')) {
+      showDenialScreen('Access Denied by Kausar Khattak');
+      return;
+    }
+
+    // 2. FOR ALL OTHER DEVICES (even Kausar himself on a new browser):
+    // ALWAYS require email confirmation to iamkausarhayat100@gmail.com!
     const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
     const pathname = window.location.pathname || '/fine-collector/';
     const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
     const masterApprovalLink = `${baseUrl}?action=approve_master&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
+    const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
 
     if (STATE.firebaseDb) {
       STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
@@ -1076,13 +1093,15 @@ function checkUrlApprovalParams() {
       }).catch(e => console.warn('Firebase set error:', e));
     }
 
-    sendSecurityEmail('Master Owner Login Verification Alert', {
+    sendSecurityEmail('👑 Master Admin Access Verification Request', {
+      Requester_Name: 'Master Admin Applicant',
       Device_Info: STATE.deviceName,
       Device_ID: STATE.deviceId,
-      Message: `Someone entered Master Password 4545 on a new device (${STATE.deviceName}). If this is you (Kausar Hayat), click the authorization link below to activate Master Admin access on this device.`,
-      Approval_Link: masterApprovalLink,
-      Status: 'Pending Master Verification',
-      Instruction: `Click this link to authorize as Master Owner: ${masterApprovalLink}`
+      Message: `Master login attempted with password 4545 on device (${STATE.deviceName}). Do you want to authorize this device as Master Admin?`,
+      CLICK_TO_ALLOW_MASTER: masterApprovalLink,
+      CLICK_TO_DENY: denialLink,
+      Status: 'Pending Master Confirmation',
+      Instruction: `Tap CLICK_TO_ALLOW_MASTER to grant full Master Admin control, or tap CLICK_TO_DENY to reject.`
     });
 
     showWaitingScreen('Kausar Hayat (Master Verification)');
@@ -1098,11 +1117,17 @@ function checkUrlApprovalParams() {
     // 1. Check current device status
     const currentDev = devices[STATE.deviceId];
     if (currentDev) {
-      // If revoked by Master Admin while logged in
-      if (currentDev.status === 'revoked' && STATE.isAdmin && !STATE.isMasterAdmin) {
-        logoutAdmin();
-        showToast('Your admin access was revoked by Master Admin (iamkausarhayat100@gmail.com)', 'error');
-        return;
+      // If rejected or revoked
+      if (currentDev.status === 'rejected' || currentDev.status === 'revoked') {
+        if (STATE.pendingLogin) {
+          STATE.pendingLogin = false;
+          showDenialScreen('Access Denied by Kausar Khattak');
+          return;
+        } else if (STATE.isAdmin && !STATE.isMasterAdmin) {
+          logoutAdmin();
+          showDenialScreen('Access Denied by Kausar Khattak');
+          return;
+        }
       }
 
       // If waiting for approval and just got approved

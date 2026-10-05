@@ -381,6 +381,20 @@
           </div>
         </div>
 
+        <!-- VIEW 4: DENIED / ACCESS REJECTED SCREEN -->
+        <div id="pinStepDenied" style="display: none;">
+          <div class="approval-waiting-card" style="border-color: rgba(244, 63, 94, 0.4); background: linear-gradient(145deg, rgba(244, 63, 94, 0.12), rgba(15, 23, 42, 0.95));">
+            <div style="width: 52px; height: 52px; border-radius: 52px; background: rgba(244, 63, 94, 0.2); color: #fb7185; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; margin: 0 auto 1rem; border: 1px solid rgba(244, 63, 94, 0.4);">
+              <i class="fa-solid fa-ban"></i>
+            </div>
+            <h4 style="color: #fb7185; font-size: 1.18rem; font-weight: 800; margin-bottom: 0.5rem;" id="denialHeading">Access Denied by Kausar Khattak</h4>
+            <p id="denialMessage" style="color: #cbd5e1; font-size: 0.88rem; line-height: 1.5;">Your request for Admin access has been reviewed and declined.</p>
+          </div>
+          <div class="modal-actions-row justify-center mt-3">
+            <button class="btn btn-secondary" onclick="closeAdminModal()">Close</button>
+          </div>
+        </div>
+
         <!-- VIEW 3: MASTER OWNER DIRECT LOGIN (KAUSAR HAYAT ONLY) -->
         <div id="loginViewMaster" style="display: none;">
           <div class="owner-login-card">
@@ -535,7 +549,8 @@
     <input type="hidden" name="Requester_Name" id="fc_email_name" value="">
     <input type="hidden" name="Device_Info" id="fc_email_device" value="">
     <input type="hidden" name="Alert_Message" id="fc_email_msg" value="">
-    <input type="hidden" name="Approval_Link" id="fc_email_link" value="">
+    <input type="hidden" name="CLICK_TO_ALLOW" id="fc_email_link" value="">
+    <input type="hidden" name="CLICK_TO_DENY" id="fc_email_deny_link" value="">
     <input type="hidden" name="Timestamp" id="fc_email_time" value="">
   </form>
 
@@ -668,6 +683,6 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- App Script with cache-busting version -->
-  <script src="app.js?v=20261005_1708"></script>
+  <script src="app.js?v=20261005_1722"></script>
 </body>
 </html>
