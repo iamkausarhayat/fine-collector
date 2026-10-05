@@ -310,6 +310,56 @@ function initCloudOrLocalStorage() {
  * e.g. https://iamkausarhayat.github.io/fine-collector/?action=approve&dev=dev_xxx&key=4545
  * or action=approve_master
  */
+// ==================== WAITING COUNTDOWN TIMER (1 MINUTE) ====================
+let waitingCountdownTimer = null;
+let waitingSecondsRemaining = 60;
+
+function startWaitingCountdown() {
+  if (waitingCountdownTimer) {
+    clearInterval(waitingCountdownTimer);
+    waitingCountdownTimer = null;
+  }
+  waitingSecondsRemaining = 60;
+  updateCountdownDisplay();
+
+  waitingCountdownTimer = setInterval(() => {
+    waitingSecondsRemaining--;
+    updateCountdownDisplay();
+
+    if (waitingSecondsRemaining <= 0) {
+      clearInterval(waitingCountdownTimer);
+      waitingCountdownTimer = null;
+      if (STATE.firebaseDb && STATE.deviceId) {
+        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
+          status: 'rejected',
+          denialReason: 'You are denied by Kausar Khattak'
+        }).catch(() => {});
+      }
+      showDenialScreen('You are denied by Kausar Khattak');
+    }
+  }, 1000);
+}
+
+function updateCountdownDisplay() {
+  const el = document.getElementById('waitCountdownTimer');
+  if (!el) return;
+  const mins = Math.floor(waitingSecondsRemaining / 60);
+  const secs = waitingSecondsRemaining % 60;
+  el.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  if (waitingSecondsRemaining <= 15) {
+    el.style.color = '#ef4444';
+  } else {
+    el.style.color = '#38bdf8';
+  }
+}
+
+function stopWaitingCountdown() {
+  if (waitingCountdownTimer) {
+    clearInterval(waitingCountdownTimer);
+    waitingCountdownTimer = null;
+  }
+}
+
 function checkUrlApprovalParams() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -320,10 +370,10 @@ function checkUrlApprovalParams() {
     if ((action === 'approve' || action === 'approve_master' || action === 'reject') && devId && (key === '4545' || key === STATE.masterKey || key === STATE.adminPin)) {
       if (STATE.firebaseDb) {
         const isMaster = (action === 'approve_master');
-        const newStatus = (action === 'reject') ? 'rejected' : 'approved';
+        const isReject = (action === 'reject');
         const updatePayload = {
-          status: newStatus,
-          [action === 'reject' ? 'rejectedAt' : 'approvedAt']: Date.now()
+          status: isReject ? 'rejected' : 'approved',
+          [isReject ? 'rejectedAt' : 'approvedAt']: Date.now()
         };
         if (isMaster) {
           updatePayload.role = 'master';
@@ -332,16 +382,17 @@ function checkUrlApprovalParams() {
         } else if (action === 'approve') {
           updatePayload.role = 'subadmin';
           updatePayload.isOwner = false;
-        } else if (action === 'reject') {
+        } else if (isReject) {
           updatePayload.role = 'guest';
           updatePayload.isOwner = false;
-          updatePayload.denialReason = 'Access Denied by Kausar Khattak';
+          updatePayload.denialReason = 'You are denied by Kausar Khattak';
         }
 
         STATE.firebaseDb.ref(`security/admin_devices/${devId}`).update(updatePayload).then(() => {
-          const actionMsg = isMaster ? 'MASTER AUTHORIZED' : (action === 'approve' ? 'SUB-ADMIN APPROVED' : 'ACCESS DENIED');
-          showToast(`Access ${actionMsg} successfully!`, action === 'reject' ? 'error' : 'success');
+          const actionMsg = isMaster ? 'MASTER AUTHORIZED' : (action === 'approve' ? 'SUB-ADMIN APPROVED' : 'ACCESS DENIED: You are denied by Kausar Khattak');
+          showToast(`Access ${actionMsg} successfully!`, isReject ? 'error' : 'success');
           if (devId === STATE.deviceId) {
+            stopWaitingCountdown();
             if (isMaster) {
               localStorage.setItem('fc_is_master_owner', 'true');
               STATE.isAdmin = true;
@@ -361,8 +412,8 @@ function checkUrlApprovalParams() {
               closeAdminModal();
               updateAdminUI();
               renderAll();
-            } else if (action === 'reject') {
-              showDenialScreen('Access Denied by Kausar Khattak');
+            } else if (isReject) {
+              showDenialScreen('You are denied by Kausar Khattak');
             }
           }
         });
@@ -375,7 +426,8 @@ function checkUrlApprovalParams() {
   }
 }
 
-function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
+function showDenialScreen(message = 'You are denied by Kausar Khattak') {
+  stopWaitingCountdown();
   const pinView = document.getElementById('loginViewPin');
   const masterView = document.getElementById('loginViewMaster');
   const waitingView = document.getElementById('pinStepWaiting');
@@ -387,11 +439,11 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
   if (masterView) masterView.style.display = 'none';
   if (waitingView) waitingView.style.display = 'none';
   if (deniedView) deniedView.style.display = 'block';
-  if (denialHeading) denialHeading.textContent = message;
-  if (denialMsg) denialMsg.textContent = 'Your request has been reviewed and declined by Kausar Khattak.';
+  if (denialHeading) denialHeading.textContent = 'You are denied by Kausar Khattak';
+  if (denialMsg) denialMsg.textContent = message || 'You are denied by Kausar Khattak';
 
   STATE.pendingLogin = false;
-  showToast(message, 'error');
+  showToast(message || 'You are denied by Kausar Khattak', 'error');
 }
 
   function loadFromLocalStorage() {
@@ -844,6 +896,7 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
   }
 
   function closeAdminModal() {
+    stopWaitingCountdown();
     document.getElementById('adminModal').style.display = 'none';
     STATE.pendingLogin = false;
   }
@@ -885,10 +938,10 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
     const currentDev = STATE.adminDevices[STATE.deviceId];
     if (currentDev) {
       if (currentDev.status === 'pending' || currentDev.status === 'pending_master') {
-        showWaitingScreen(currentDev.name || 'Admin Requester');
+        showWaitingScreen(currentDev.name || 'Admin Requester', currentDev.status === 'pending_master' ? 'Master Admin' : 'Sub-Admin');
         return;
       } else if (currentDev.status === 'rejected' || currentDev.status === 'revoked') {
-        showDenialScreen('Access Denied by Kausar Khattak');
+        showDenialScreen('You are denied by Kausar Khattak');
         return;
       }
     }
@@ -941,32 +994,7 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
-    // 1. Check if this device is ALREADY registered & approved in Cloud by Kausar
-    const currentDev = STATE.adminDevices[STATE.deviceId];
-    if (currentDev) {
-      if (currentDev.status === 'approved') {
-        STATE.isAdmin = true;
-        STATE.isMasterAdmin = !!currentDev.isOwner;
-        STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
-        sessionStorage.setItem('fc_is_admin', 'true');
-        sessionStorage.setItem('fc_admin_role', STATE.adminRole);
-        closeAdminModal();
-        updateAdminUI();
-        renderAll();
-        showToast(`Welcome back, ${currentDev.name || enteredName}!`, 'success');
-        return;
-      } else if (currentDev.status === 'revoked' || currentDev.status === 'rejected') {
-        showDenialScreen('Access Denied by Kausar Khattak');
-        return;
-      } else if (currentDev.status === 'pending') {
-        // Waiting for Kausar's approval
-        showWaitingScreen(currentDev.name || enteredName);
-        return;
-      }
-    }
-
-    // 2. FOR ALL OTHER / NEW ACCESS REQUESTS:
-    // ALWAYS require Master Owner permission via email to iamkausarhayat100@gmail.com!
+    // 1. Mandatory Security Workflow: ALWAYS require Master Mind permission via email to iamkausarhayat100@gmail.com!
     const requestPayload = {
       id: STATE.deviceId,
       name: enteredName,
@@ -990,23 +1018,24 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
     const approvalLink = `${baseUrl}?action=approve&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
     const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
 
-    // Dispatch instant email notification to Master Admin (iamkausarhayat100@gmail.com)
-    sendSecurityEmail(`Admin Access Request from ${enteredName}`, {
-      Requester_Name: enteredName,
+    // Dispatch instant email notification to Master Mind (iamkausarhayat100@gmail.com)
+    sendSecurityEmail(`🛡️ Someone wants to become an Admin (${enteredName})`, {
+      Request_Type: 'Someone wants to become an Admin',
+      Applicant_Name: enteredName,
+      Applicant_Role: 'Sub-Admin',
       Device_Info: STATE.deviceName,
       Device_ID: STATE.deviceId,
-      Question: `User "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow this person?`,
-      CLICK_TO_ALLOW: approvalLink,
+      Question: `User "${enteredName}" entered password 4545 and requested Admin access. Do you want to allow or deny this person?`,
+      CLICK_TO_ALLOW_ADMIN: approvalLink,
       CLICK_TO_DENY: denialLink,
-      Status: 'Pending Master Approval',
-      Instruction: `Tap CLICK_TO_ALLOW to approve as Sub-Admin, or tap CLICK_TO_DENY to deny.`
+      Status: 'Pending Master Mind Permission'
     });
 
-    // Transition to waiting screen
-    showWaitingScreen(enteredName);
+    // Transition to waiting screen with 1 minute countdown
+    showWaitingScreen(enteredName, 'Sub-Admin');
   }
 
-  function showWaitingScreen(name) {
+  function showWaitingScreen(name, requestedRole = 'Admin') {
     const pinView = document.getElementById('loginViewPin');
     const masterView = document.getElementById('loginViewMaster');
     const waitingView = document.getElementById('pinStepWaiting');
@@ -1017,12 +1046,21 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
     if (deniedView) deniedView.style.display = 'none';
     if (waitingView) waitingView.style.display = 'block';
 
+    const waitTitle = document.getElementById('waitTitle');
+    if (waitTitle) {
+      waitTitle.innerHTML = '<i class="fa-solid fa-brain"></i> Wait for Master Mind Permission';
+    }
+
     const waitName = document.getElementById('waitRequesterName');
     const waitDevice = document.getElementById('waitDeviceName');
+    const waitRole = document.getElementById('waitRoleBadge');
+
     if (waitName) waitName.textContent = name;
     if (waitDevice) waitDevice.textContent = STATE.deviceName;
+    if (waitRole) waitRole.textContent = (requestedRole === 'Master Admin' || requestedRole === 'master') ? '👑 Master Admin' : '🛡️ Sub-Admin';
 
     STATE.pendingLogin = true;
+    startWaitingCountdown();
   }
 
   /**
@@ -1051,30 +1089,7 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
-    // 1. Check if this device is ALREADY approved as Master Owner in Cloud
-    const currentDev = STATE.adminDevices[STATE.deviceId];
-    if (currentDev && currentDev.isOwner === true && currentDev.status === 'approved') {
-      STATE.isAdmin = true;
-      STATE.isMasterAdmin = true;
-      STATE.adminRole = 'master';
-      localStorage.setItem('fc_is_master_owner', 'true');
-      sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_role', 'master');
-
-      closeAdminModal();
-      updateAdminUI();
-      renderAll();
-      showToast('👑 Welcome Master Admin (Kausar Hayat)! Full system control active.', 'success');
-      return;
-    }
-
-    if (currentDev && (currentDev.status === 'rejected' || currentDev.status === 'revoked')) {
-      showDenialScreen('Access Denied by Kausar Khattak');
-      return;
-    }
-
-    // 2. FOR ALL OTHER DEVICES (even Kausar himself on a new browser):
-    // ALWAYS require email confirmation to iamkausarhayat100@gmail.com!
+    // Mandatory Security Workflow: ALWAYS require Master Mind permission via email to iamkausarhayat100@gmail.com!
     const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
     const pathname = window.location.pathname || '/fine-collector/';
     const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
@@ -1084,7 +1099,7 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
     if (STATE.firebaseDb) {
       STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
         id: STATE.deviceId,
-        name: 'Kausar Hayat (Master Verification Request)',
+        name: 'Master Admin Applicant',
         device: STATE.deviceName,
         status: 'pending_master',
         role: 'pending_master',
@@ -1093,19 +1108,19 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
       }).catch(e => console.warn('Firebase set error:', e));
     }
 
-    sendSecurityEmail('👑 Master Admin Access Verification Request', {
-      Requester_Name: 'Master Admin Applicant',
+    sendSecurityEmail('👑 Someone wanna made master', {
+      Request_Type: 'Someone wanna made master',
+      Applicant_Role: '👑 Master Admin',
       Device_Info: STATE.deviceName,
       Device_ID: STATE.deviceId,
-      Message: `Master login attempted with password 4545 on device (${STATE.deviceName}). Do you want to authorize this device as Master Admin?`,
+      Question: `Someone entered Master Password 4545 on device (${STATE.deviceName}) and wants to become Master Admin. Do you want to grant Master Admin access or deny?`,
       CLICK_TO_ALLOW_MASTER: masterApprovalLink,
       CLICK_TO_DENY: denialLink,
-      Status: 'Pending Master Confirmation',
-      Instruction: `Tap CLICK_TO_ALLOW_MASTER to grant full Master Admin control, or tap CLICK_TO_DENY to reject.`
+      Status: 'Pending Master Mind Permission'
     });
 
-    showWaitingScreen('Kausar Hayat (Master Verification)');
-    showToast('Verification alert sent to iamkausarhayat100@gmail.com', 'info');
+    showWaitingScreen('Master Admin Applicant', 'Master Admin');
+    showToast('Permission alert dispatched to Master Mind (iamkausarhayat100@gmail.com)', 'info');
   }
 
   /**
@@ -1119,19 +1134,21 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
     if (currentDev) {
       // If rejected or revoked
       if (currentDev.status === 'rejected' || currentDev.status === 'revoked') {
+        stopWaitingCountdown();
         if (STATE.pendingLogin) {
           STATE.pendingLogin = false;
-          showDenialScreen('Access Denied by Kausar Khattak');
+          showDenialScreen('You are denied by Kausar Khattak');
           return;
         } else if (STATE.isAdmin && !STATE.isMasterAdmin) {
           logoutAdmin();
-          showDenialScreen('Access Denied by Kausar Khattak');
+          showDenialScreen('You are denied by Kausar Khattak');
           return;
         }
       }
 
       // If waiting for approval and just got approved
       if (currentDev.status === 'approved' && STATE.pendingLogin) {
+        stopWaitingCountdown();
         STATE.isAdmin = true;
         STATE.isMasterAdmin = !!currentDev.isOwner;
         STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
@@ -1144,7 +1161,7 @@ function showDenialScreen(message = 'Access Denied by Kausar Khattak') {
         closeAdminModal();
         updateAdminUI();
         renderAll();
-        showToast(currentDev.isOwner ? '👑 Master Admin Verified by Email!' : 'Permission Approved by Master Admin! You are now an Admin.', 'success');
+        showToast(currentDev.isOwner ? '👑 Master Admin Verified by Email! Full access granted.' : 'Permission Granted by Master Mind (Kausar Hayat)! You are now an Admin.', 'success');
       }
     }
 

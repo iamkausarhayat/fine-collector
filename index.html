@@ -360,35 +360,55 @@
           </div>
         </div>
 
-        <!-- VIEW 2: WAITING FOR APPROVAL SCREEN (LIVE REALTIME) -->
+        <!-- VIEW 2: WAITING FOR APPROVAL SCREEN (LIVE REALTIME WITH 1-MIN COUNTDOWN) -->
         <div id="pinStepWaiting" style="display: none;">
           <div class="approval-waiting-card">
             <div class="spinner-pulse"></div>
-            <h4>Permission Request Dispatched!</h4>
-            <p>An approval alert has been sent to Master Admin at <strong>iamkausarhayat100@gmail.com</strong>.</p>
+            <h4 id="waitTitle" style="color: #60a5fa; font-weight: 800; font-size: 1.25rem; margin-bottom: 0.35rem;">
+              <i class="fa-solid fa-brain"></i> Wait for Master Mind Permission
+            </h4>
+            <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.75rem;">
+              Authorization request dispatched to Master Mind (<strong>iamkausarhayat100@gmail.com</strong>).
+            </p>
+
+            <!-- 1 MINUTE COUNTDOWN TIMER DISPLAY -->
+            <div class="waiting-countdown-box" style="margin: 0.75rem 0 1.25rem; padding: 1.1rem; border-radius: 12px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); text-align: center;">
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; color: #93c5fd; font-weight: 700; margin-bottom: 0.25rem;">
+                <i class="fa-regular fa-clock"></i> Permission Countdown (1 Minute)
+              </div>
+              <div id="waitCountdownTimer" style="font-size: 2.3rem; font-weight: 900; font-family: monospace; color: #38bdf8; text-shadow: 0 0 14px rgba(56, 189, 248, 0.55); letter-spacing: 2px;">
+                01:00
+              </div>
+              <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 0.35rem;">
+                Waiting for Kausar Hayat to tap <strong>Allow</strong> or <strong>Deny</strong> in Gmail...
+              </div>
+            </div>
+
             <div class="waiting-details-box">
-              <div><span>Your Name:</span> <strong id="waitRequesterName">-</strong></div>
-              <div><span>Your Device:</span> <span id="waitDeviceName">-</span></div>
-              <div><span>Status:</span> <span class="badge-waiting"><i class="fa-solid fa-clock"></i> Pending Kausar's Approval</span></div>
+              <div><span>Applicant:</span> <strong id="waitRequesterName">-</strong></div>
+              <div><span>Requested Role:</span> <strong id="waitRoleBadge" style="color: #38bdf8;">-</strong></div>
+              <div><span>Device:</span> <span id="waitDeviceName">-</span></div>
+              <div><span>Status:</span> <span class="badge-waiting"><i class="fa-solid fa-circle-notch fa-spin"></i> Awaiting Master Mind</span></div>
             </div>
             <p class="waiting-live-note">
-              <i class="fa-solid fa-bolt"></i> Live Real-time Sync Active: As soon as Kausar Hayat clicks "Allow Access", this screen will automatically open!
+              <i class="fa-solid fa-bolt"></i> Live Real-time Sync Active: As soon as Kausar Hayat clicks "Allow", this screen will instantly unlock!
             </p>
           </div>
 
           <div class="modal-actions-row justify-center mt-3">
-            <button class="btn btn-secondary" onclick="closeAdminModal()">Close & Wait</button>
+            <button class="btn btn-secondary" onclick="closeAdminModal()">Close Window</button>
           </div>
         </div>
 
         <!-- VIEW 4: DENIED / ACCESS REJECTED SCREEN -->
         <div id="pinStepDenied" style="display: none;">
-          <div class="approval-waiting-card" style="border-color: rgba(244, 63, 94, 0.4); background: linear-gradient(145deg, rgba(244, 63, 94, 0.12), rgba(15, 23, 42, 0.95));">
-            <div style="width: 52px; height: 52px; border-radius: 52px; background: rgba(244, 63, 94, 0.2); color: #fb7185; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; margin: 0 auto 1rem; border: 1px solid rgba(244, 63, 94, 0.4);">
+          <div class="approval-waiting-card" style="border-color: rgba(244, 63, 94, 0.5); background: linear-gradient(145deg, rgba(244, 63, 94, 0.16), rgba(15, 23, 42, 0.95));">
+            <div style="width: 56px; height: 56px; border-radius: 56px; background: rgba(244, 63, 94, 0.22); color: #fb7185; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto 1rem; border: 1px solid rgba(244, 63, 94, 0.45);">
               <i class="fa-solid fa-ban"></i>
             </div>
-            <h4 style="color: #fb7185; font-size: 1.18rem; font-weight: 800; margin-bottom: 0.5rem;" id="denialHeading">Access Denied by Kausar Khattak</h4>
-            <p id="denialMessage" style="color: #cbd5e1; font-size: 0.88rem; line-height: 1.5;">Your request for Admin access has been reviewed and declined.</p>
+            <h4 style="color: #fb7185; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;" id="denialHeading">You are denied by Kausar Khattak</h4>
+            <p id="denialMessage" style="color: #f1f5f9; font-size: 0.95rem; line-height: 1.6; font-weight: 600;">You are denied by Kausar Khattak</p>
+            <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem;">Access request was declined by the system owner.</p>
           </div>
           <div class="modal-actions-row justify-center mt-3">
             <button class="btn btn-secondary" onclick="closeAdminModal()">Close</button>
@@ -683,6 +703,6 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- App Script with cache-busting version -->
-  <script src="app.js?v=20261005_1722"></script>
+  <script src="app.js?v=20261005_1740"></script>
 </body>
 </html>
