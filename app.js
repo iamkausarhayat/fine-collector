@@ -953,22 +953,32 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
   function switchLoginTab(tab) {
     const pinView = document.getElementById('loginViewPin');
     const masterView = document.getElementById('loginViewMaster');
+    const waitingView = document.getElementById('pinStepWaiting');
+    const deniedView = document.getElementById('pinStepDenied');
     const pinTabBtn = document.getElementById('tabPinLoginBtn');
     const masterTabBtn = document.getElementById('tabMasterLoginBtn');
 
     if (tab === 'master') {
       if (pinView) pinView.style.display = 'none';
+      if (waitingView) waitingView.style.display = 'none';
+      if (deniedView) deniedView.style.display = 'none';
       if (masterView) masterView.style.display = 'block';
+      const formCard = document.getElementById('masterLoginFormCard');
+      if (formCard) formCard.style.display = 'block';
       if (pinTabBtn) pinTabBtn.classList.remove('active');
       if (masterTabBtn) masterTabBtn.classList.add('active');
+      const err = document.getElementById('masterLoginErrorMsg');
+      if (err) err.style.display = 'none';
       const masterKeyInput = document.getElementById('masterOwnerKeyInput');
       if (masterKeyInput) {
         masterKeyInput.value = '';
         masterKeyInput.focus();
       }
     } else {
-      if (pinView) pinView.style.display = 'block';
       if (masterView) masterView.style.display = 'none';
+      if (waitingView) waitingView.style.display = 'none';
+      if (deniedView) deniedView.style.display = 'none';
+      if (pinView) pinView.style.display = 'block';
       if (pinTabBtn) pinTabBtn.classList.add('active');
       if (masterTabBtn) masterTabBtn.classList.remove('active');
       const pinInput = document.getElementById('adminPinInput');
