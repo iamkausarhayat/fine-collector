@@ -437,10 +437,13 @@
             </div>
             <h4 style="color: #fb7185; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;" id="denialHeading">You are denied by Kausar Khattak</h4>
             <p id="denialMessage" style="color: #f1f5f9; font-size: 0.95rem; line-height: 1.6; font-weight: 600;">You are denied by Kausar Khattak</p>
-            <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem;">Access request was declined by the system owner.</p>
+            <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem;" id="denialSubText">Access request was declined by the system owner.</p>
           </div>
-          <div class="modal-actions-row justify-center mt-3">
+          <div class="modal-actions-row justify-center mt-3" style="gap: 0.75rem;">
             <button class="btn btn-secondary" onclick="closeAdminModal()">Close</button>
+            <button class="btn btn-primary" onclick="retryAdminLogin()">
+              <i class="fa-solid fa-rotate-left"></i> Try Again / Enter Key
+            </button>
           </div>
         </div>
 

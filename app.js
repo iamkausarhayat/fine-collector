@@ -661,14 +661,14 @@ function initCloudOrLocalStorage() {
  */
 // ==================== WAITING COUNTDOWN TIMER ====================
 let waitingCountdownTimer = null;
-let waitingSecondsRemaining = 90;
+let waitingSecondsRemaining = 300;
 
 function startWaitingCountdown() {
   if (waitingCountdownTimer) {
     clearInterval(waitingCountdownTimer);
     waitingCountdownTimer = null;
   }
-  waitingSecondsRemaining = 90;
+  waitingSecondsRemaining = 300;
   updateCountdownDisplay();
 
   waitingCountdownTimer = setInterval(() => {
@@ -680,11 +680,11 @@ function startWaitingCountdown() {
       waitingCountdownTimer = null;
       if (STATE.firebaseDb && STATE.deviceId) {
         STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
-          status: 'rejected',
-          denialReason: 'You are denied by Kausar Khattak'
+          status: 'timeout',
+          denialReason: 'Request timed out waiting for Master Mind approval.'
         }).catch(() => {});
       }
-      showDenialScreen('You are denied by Kausar Khattak');
+      showDenialScreen('Request timed out waiting for Master Mind approval. You can try again or enter your Private Key.');
     }
   }, 1000);
 }
@@ -692,10 +692,10 @@ function startWaitingCountdown() {
 function updateCountdownDisplay() {
   const el = document.getElementById('waitCountdownTimer');
   if (!el) return;
-  const mins = Math.floor(waitingSecondsRemaining / 60);
-  const secs = waitingSecondsRemaining % 60;
+  const mins = Math.floor(Math.max(0, waitingSecondsRemaining) / 60);
+  const secs = Math.max(0, waitingSecondsRemaining) % 60;
   el.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  if (waitingSecondsRemaining <= 15) {
+  if (waitingSecondsRemaining <= 30) {
     el.style.color = '#ef4444';
   } else {
     el.style.color = '#38bdf8';
@@ -783,16 +783,68 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
   const deniedView = document.getElementById('pinStepDenied');
   const denialHeading = document.getElementById('denialHeading');
   const denialMsg = document.getElementById('denialMessage');
+  const denialSubText = document.getElementById('denialSubText');
 
   if (pinView) pinView.style.display = 'none';
   if (masterView) masterView.style.display = 'none';
   if (waitingView) waitingView.style.display = 'none';
   if (deniedView) deniedView.style.display = 'block';
-  if (denialHeading) denialHeading.textContent = 'You are denied by Kausar Khattak';
-  if (denialMsg) denialMsg.textContent = message || 'You are denied by Kausar Khattak';
+
+  const isTimeout = message && message.toLowerCase().includes('timed out');
+  if (denialHeading) {
+    denialHeading.textContent = isTimeout ? 'Request Timed Out' : 'You are denied by Kausar Khattak';
+  }
+  if (denialMsg) {
+    denialMsg.textContent = message || 'You are denied by Kausar Khattak';
+  }
+  if (denialSubText) {
+    denialSubText.textContent = isTimeout 
+      ? 'Master Mind did not respond in time. You can try again or enter your Private Key.'
+      : 'Access request was declined by the system owner.';
+  }
 
   STATE.pendingLogin = false;
-  showToast(message || 'You are denied by Kausar Khattak', 'error');
+  showToast(message || 'You are denied by Kausar Khattak', isTimeout ? 'info' : 'error');
+}
+
+function retryAdminLogin() {
+  stopWaitingCountdown();
+  STATE.pendingLogin = false;
+
+  // Clear device rejection/timeout record so user can re-enter credentials
+  if (STATE.firebaseDb && STATE.deviceId) {
+    STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).remove().catch(() => {});
+  }
+  if (STATE.adminDevices && STATE.adminDevices[STATE.deviceId]) {
+    delete STATE.adminDevices[STATE.deviceId];
+    try {
+      localStorage.setItem('fc_admin_devices', JSON.stringify(STATE.adminDevices));
+    } catch (e) {}
+  }
+
+  const pinView = document.getElementById('loginViewPin');
+  const masterView = document.getElementById('loginViewMaster');
+  const waitingView = document.getElementById('pinStepWaiting');
+  const deniedView = document.getElementById('pinStepDenied');
+  const errorMsg = document.getElementById('loginErrorMsg');
+  const keyInput = document.getElementById('adminPrivateKeyInput');
+  const pinInput = document.getElementById('adminPinInput');
+  const nameInput = document.getElementById('adminLoginNameInput');
+
+  if (keyInput) keyInput.value = '';
+  if (pinInput) pinInput.value = '';
+  if (errorMsg) errorMsg.style.display = 'none';
+
+  if (deniedView) deniedView.style.display = 'none';
+  if (waitingView) waitingView.style.display = 'none';
+  if (masterView) masterView.style.display = 'none';
+  if (pinView) pinView.style.display = 'block';
+
+  if (nameInput && !nameInput.value) {
+    nameInput.focus();
+  } else if (pinInput) {
+    pinInput.focus();
+  }
 }
 
   function loadFromLocalStorage() {
@@ -2115,21 +2167,15 @@ function approveDevice(deviceId, asMaster = false) {
   if (!dev) return;
 
   const isMaster = asMaster || dev.status === 'pending_master' || dev.role === 'pending_master';
+  const updatePayload = {
+    status: 'approved',
+    approvedAt: Date.now(),
+    role: isMaster ? 'master' : 'subadmin',
+    isOwner: isMaster,
+    name: isMaster ? 'Kausar Hayat (Master Owner)' : (dev.name || 'Admin')
+  };
 
   if (STATE.firebaseDb) {
-    const updatePayload = {
-      status: 'approved',
-      approvedAt: Date.now()
-    };
-    if (isMaster) {
-      updatePayload.role = 'master';
-      updatePayload.isOwner = true;
-      updatePayload.name = 'Kausar Hayat (Master Owner)';
-    } else {
-      updatePayload.role = 'subadmin';
-      updatePayload.isOwner = false;
-    }
-
     STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update(updatePayload).then(() => {
       showToast(`${isMaster ? 'Master' : 'Sub-Admin'} access granted to ${dev.name}`, 'success');
 
@@ -2140,6 +2186,17 @@ function approveDevice(deviceId, asMaster = false) {
         actionType: 'PERMISSION_GRANTED',
         details: `Granted ${isMaster ? 'Master' : 'Sub-Admin'} access to "${dev.name}" (${dev.device})`
       });
+    });
+  } else {
+    Object.assign(dev, updatePayload);
+    localStorage.setItem('fc_admin_devices', JSON.stringify(STATE.adminDevices));
+    renderAuthorizedAdminsList();
+    showToast(`${isMaster ? 'Master' : 'Sub-Admin'} access granted to ${dev.name}`, 'success');
+    recordAuditLog({
+      adminName: 'Kausar Hayat (Master Owner)',
+      role: 'Master Admin',
+      actionType: 'PERMISSION_GRANTED',
+      details: `Granted ${isMaster ? 'Master' : 'Sub-Admin'} access to "${dev.name}" (${dev.device})`
     });
   }
 }
@@ -2164,6 +2221,18 @@ function rejectDevice(deviceId) {
         details: `Rejected access request for "${dev.name}" (${dev.device})`
       });
     });
+  } else {
+    dev.status = 'rejected';
+    dev.rejectedAt = Date.now();
+    localStorage.setItem('fc_admin_devices', JSON.stringify(STATE.adminDevices));
+    renderAuthorizedAdminsList();
+    showToast(`Request rejected for ${dev.name}`, 'info');
+    recordAuditLog({
+      adminName: 'Kausar Hayat (Master Owner)',
+      role: 'Master Admin',
+      actionType: 'PERMISSION_REJECTED',
+      details: `Rejected access request for "${dev.name}" (${dev.device})`
+    });
   }
 }
 
@@ -2173,6 +2242,29 @@ function deleteAdminDevice(deviceId) {
   if (!dev) return;
 
   if (confirm(`Are you sure you want to Delete / Remove Admin access from "${dev.name}"?\n\nTheir access will be immediately terminated and their device locked out.`)) {
+    // Also remove/revoke any private key assigned to this admin
+    if (dev.usedPrivateKeyId && STATE.adminPrivateKeys && STATE.adminPrivateKeys[dev.usedPrivateKeyId]) {
+      if (STATE.firebaseDb) {
+        STATE.firebaseDb.ref(`security/admin_private_keys/${dev.usedPrivateKeyId}`).remove().catch(() => {});
+      } else {
+        delete STATE.adminPrivateKeys[dev.usedPrivateKeyId];
+        localStorage.setItem('fc_admin_private_keys', JSON.stringify(STATE.adminPrivateKeys));
+      }
+    }
+    if (STATE.adminPrivateKeys && dev.name) {
+      Object.keys(STATE.adminPrivateKeys).forEach(pkId => {
+        const pk = STATE.adminPrivateKeys[pkId];
+        if (pk && pk.name && pk.name.trim().toLowerCase() === dev.name.trim().toLowerCase()) {
+          if (STATE.firebaseDb) {
+            STATE.firebaseDb.ref(`security/admin_private_keys/${pkId}`).remove().catch(() => {});
+          } else {
+            delete STATE.adminPrivateKeys[pkId];
+            localStorage.setItem('fc_admin_private_keys', JSON.stringify(STATE.adminPrivateKeys));
+          }
+        }
+      });
+    }
+
     if (STATE.firebaseDb) {
       STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update({
         status: 'revoked',
@@ -2188,6 +2280,20 @@ function deleteAdminDevice(deviceId) {
           actionType: 'ADMIN_REVOKED',
           details: `Revoked & deleted Admin access for "${dev.name}" (${dev.device})`
         });
+      });
+    } else {
+      dev.status = 'revoked';
+      dev.role = 'guest';
+      dev.revokedAt = Date.now();
+      localStorage.setItem('fc_admin_devices', JSON.stringify(STATE.adminDevices));
+      renderAuthorizedAdminsList();
+      renderAdminPrivateKeysList();
+      showToast(`Admin "${dev.name}" deleted and locked out!`, 'info');
+      recordAuditLog({
+        adminName: 'Kausar Hayat (Master Owner)',
+        role: 'Master Admin',
+        actionType: 'ADMIN_REVOKED',
+        details: `Revoked & deleted Admin access for "${dev.name}" (${dev.device})`
       });
     }
   }
@@ -2532,7 +2638,20 @@ function disconnectCloud() {
 
 function handleModalOverlayClick(e, modalId) {
   if (e.target.id === modalId) {
-    document.getElementById(modalId).style.display = 'none';
+    if (modalId === 'adminModal') {
+      closeAdminModal();
+    } else if (modalId === 'adminManageModal') {
+      closeAdminManagementModal();
+    } else if (modalId === 'pinModal') {
+      closePinModal();
+    } else if (modalId === 'cloudModal') {
+      closeCloudModal();
+    } else if (modalId === 'editEntryModal') {
+      closeEditModal();
+    } else {
+      const el = document.getElementById(modalId);
+      if (el) el.style.display = 'none';
+    }
   }
 }
 
@@ -2598,6 +2717,7 @@ function showToast(message, type = 'info') {
 // Explicit window bindings for guaranteed HTML onclick availability across all browsers
 window.toggleAdminModal = toggleAdminModal;
 window.closeAdminModal = closeAdminModal;
+window.retryAdminLogin = retryAdminLogin;
 window.switchLoginTab = switchLoginTab;
 window.handleAdminLogin = handleAdminLogin;
 window.goToAdminStep2 = goToAdminStep2;
@@ -2607,6 +2727,7 @@ window.requestEmailPermissionFromStep2 = requestEmailPermissionFromStep2;
 window.sendMasterRecoveryEmail = sendMasterRecoveryEmail;
 window.createAdminPrivateKey = createAdminPrivateKey;
 window.revokeAdminPrivateKey = revokeAdminPrivateKey;
+window.prefillAssignPrivateKey = prefillAssignPrivateKey;
 window.updateMasterLoginViewMode = updateMasterLoginViewMode;
 window.handleMasterOwnerLogin = handleMasterOwnerLogin;
 window.openAdminManagementModal = openAdminManagementModal;
@@ -2640,5 +2761,8 @@ window.setPresetTime = setPresetTime;
 window.togglePinVisibility = togglePinVisibility;
 window.sendTestSecurityEmail = sendTestSecurityEmail;
 window.handleModalOverlayClick = handleModalOverlayClick;
+window.clearAuditLogs = clearAuditLogs;
+window.renderAuditLogsList = renderAuditLogsList;
+window.filterAuditLogsForAdmin = filterAuditLogsForAdmin;
 
 
