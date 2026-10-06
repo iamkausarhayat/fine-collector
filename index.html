@@ -23,7 +23,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
 
-  <link rel="stylesheet" href="style.css?v=20261006_sec_v3">
+  <link rel="stylesheet" href="style.css?v=20261006_v5">
 </head>
 <body>
 
@@ -58,30 +58,6 @@
         </button>
       </div>
     </header>
-
-    <!-- Real-time Admin Permission Request Banner (Shown to Master Admin when someone requests access) -->
-    <div class="permission-alert-banner" id="permissionAlertBanner" style="display: none;">
-      <div class="alert-banner-left">
-        <div class="alert-pulse-ring">
-          <i class="fa-solid fa-bell"></i>
-        </div>
-        <div class="alert-banner-info">
-          <span class="alert-banner-title">New Admin Permission Request!</span>
-          <span class="alert-banner-desc" id="permissionAlertDesc">A user wants admin access</span>
-        </div>
-      </div>
-      <div class="alert-banner-actions">
-        <button class="btn-xs btn-banner-approve" onclick="quickApproveFromBanner()" title="Grant Admin Access">
-          <i class="fa-solid fa-check"></i> Allow Access
-        </button>
-        <button class="btn-xs btn-banner-reject" onclick="quickRejectFromBanner()" title="Reject Request">
-          <i class="fa-solid fa-xmark"></i> Reject
-        </button>
-        <button class="btn-xs btn-banner-view" onclick="openAdminManagementModal()">
-          <i class="fa-solid fa-list-check"></i> View All (<span id="bannerPendingCount">1</span>)
-        </button>
-      </div>
-    </div>
 
     <!-- Admin Status Banner (Shown only when admin is logged in) -->
     <div class="admin-banner" id="adminBanner" style="display: none;">
@@ -536,6 +512,27 @@
         
         <!-- Tab 1: Pending Access Requests -->
         <div id="manageViewPending">
+          <!-- Permission Request Alert Box inside Master Page only -->
+          <div class="permission-alert-banner" id="permissionAlertBanner" style="display: none; margin-bottom: 1.25rem;">
+            <div class="alert-banner-left">
+              <div class="alert-pulse-ring">
+                <i class="fa-solid fa-bell"></i>
+              </div>
+              <div class="alert-banner-info">
+                <span class="alert-banner-title">New Admin Permission Request!</span>
+                <span class="alert-banner-desc" id="permissionAlertDesc">A user wants admin access</span>
+              </div>
+            </div>
+            <div class="alert-banner-actions">
+              <button class="btn-xs btn-banner-approve" onclick="quickApproveFromBanner()" title="Grant Admin Access">
+                <i class="fa-solid fa-check"></i> Allow Access
+              </button>
+              <button class="btn-xs btn-banner-reject" onclick="quickRejectFromBanner()" title="Reject Request">
+                <i class="fa-solid fa-xmark"></i> Reject
+              </button>
+            </div>
+          </div>
+
           <p class="modal-section-desc">
             Users currently requesting admin access with 4545. Click <strong>"Allow Access"</strong> to grant instant Sub-Admin access, or <strong>"Assign Key"</strong> to generate a unique Private Key for their exact name.
           </p>
@@ -837,6 +834,6 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- App Script with cache-busting version -->
-  <script src="app.js?v=20261006_sec_v3"></script>
+  <script src="app.js?v=20261006_v5"></script>
 </body>
 </html>
