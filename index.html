@@ -318,7 +318,7 @@
         <!-- VIEW 1: ADMIN LOGIN & PERMISSION PORTAL -->
         <div id="loginViewPin">
           <p class="modal-desc" style="color: #cbd5e1; font-size: 0.88rem; line-height: 1.5; margin-bottom: 1.1rem;">
-            Enter your Name and Admin Password (4545). If you have an assigned 4-digit Private Key, you will log in instantly. Otherwise, an approval request will be emailed directly to Kausar Hayat.
+            Enter your Full Name and Admin Password (4545). If Master Mind has assigned you a 4-digit Private Key, you will log in instantly. Otherwise, your access request will be sent to Master Mind for direct approval.
           </p>
 
           <div class="form-group mb-3">
@@ -370,7 +370,7 @@
                 <i class="fa-solid fa-eye" id="adminPrivateKeyEyeIcon"></i>
               </button>
             </div>
-            <span class="input-helper">Leave empty if you don't have a key; Kausar Hayat will be emailed for approval</span>
+            <span class="input-helper">Enter assigned 4-digit key, or leave blank to request Master Mind approval</span>
           </div>
 
           <div id="loginErrorMsg" class="error-msg" style="display: none;"></div>
@@ -397,7 +397,7 @@
               <i class="fa-solid fa-brain"></i> Wait for Master Mind Permission
             </h4>
             <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.75rem;">
-              Authorization request dispatched to Master Mind (<strong>iamkausarhayat100@gmail.com</strong>).
+              Authorization request submitted to <strong>Master Mind (Kausar Hayat)</strong>.
             </p>
 
             <!-- COUNTDOWN TIMER DISPLAY -->
@@ -406,10 +406,10 @@
                 <i class="fa-regular fa-clock"></i> Permission Countdown
               </div>
               <div id="waitCountdownTimer" style="font-size: 2.3rem; font-weight: 900; font-family: monospace; color: #38bdf8; text-shadow: 0 0 14px rgba(56, 189, 248, 0.55); letter-spacing: 2px;">
-                01:30
+                05:00
               </div>
               <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 0.35rem;">
-                Waiting for Kausar Hayat to tap <strong>Allow</strong> or <strong>Deny</strong> in Gmail...
+                Waiting for Master Mind (Kausar Hayat) to allow access from Master Page...
               </div>
             </div>
 
@@ -420,7 +420,7 @@
               <div><span>Status:</span> <span class="badge-waiting"><i class="fa-solid fa-circle-notch fa-spin"></i> Awaiting Master Mind</span></div>
             </div>
             <p class="waiting-live-note">
-              <i class="fa-solid fa-bolt"></i> Live Real-time Sync Active: As soon as Kausar Hayat clicks "Allow", this screen will instantly unlock!
+              <i class="fa-solid fa-bolt"></i> Live Real-time Sync Active: As soon as Master Mind clicks "Allow Access", this screen will instantly unlock!
             </p>
           </div>
 
@@ -453,11 +453,11 @@
               <i class="fa-solid fa-crown"></i>
             </div>
             <h4>Master Mind Verification</h4>
-            <p>Direct login for System Owner (Kausar Hayat). Grants full control over system, private keys, and passwords.</p>
+            <p>Direct login for System Owner (Kausar Hayat). Grants full control over system, private keys, admin approvals, and password management.</p>
             
             <div class="form-group mb-3 text-left">
-              <label><i class="fa-solid fa-envelope"></i> Master Owner Email</label>
-              <input type="email" id="masterOwnerEmailInput" value="iamkausarhayat100@gmail.com" readonly class="input-readonly">
+              <label><i class="fa-solid fa-crown"></i> Master Mind System Owner</label>
+              <input type="text" id="masterOwnerEmailInput" value="Kausar Hayat (System Owner)" readonly class="input-readonly">
             </div>
 
             <div class="form-group mb-3 text-left">
@@ -474,7 +474,7 @@
                   <i class="fa-solid fa-eye" id="masterOwnerKeyEyeIcon"></i>
                 </button>
               </div>
-              <span class="input-helper">Authorized verification for iamkausarhayat100@gmail.com</span>
+              <span class="input-helper">Authorized verification for Master Mind (Kausar Hayat)</span>
             </div>
 
             <div id="masterLoginErrorMsg" class="error-msg" style="display: none;"></div>
@@ -499,7 +499,7 @@
       <div class="modal-header">
         <div class="modal-title-wrap">
           <h3><i class="fa-solid fa-users-gear"></i> Admin Access Management</h3>
-          <span class="master-owner-badge"><i class="fa-solid fa-shield-check"></i> Master Owner: iamkausarhayat100@gmail.com</span>
+          <span class="master-owner-badge"><i class="fa-solid fa-crown"></i> Master Owner: Kausar Hayat</span>
         </div>
         <button class="modal-close" onclick="closeAdminManagementModal()">&times;</button>
       </div>
@@ -516,8 +516,11 @@
         <button class="modal-tab" id="tabManageKeysBtn" onclick="switchManageTab('keys')">
           <i class="fa-solid fa-key"></i> Private Keys (<span id="manageTabKeysBadge">0</span>)
         </button>
+        <button class="modal-tab" id="tabManageAuditBtn" onclick="switchManageTab('audit')">
+          <i class="fa-solid fa-receipt"></i> Activity & Audit Logs (<span id="manageTabAuditBadge">0</span>)
+        </button>
         <button class="modal-tab" id="tabManageSecurityBtn" onclick="switchManageTab('security')">
-          <i class="fa-solid fa-lock"></i> Password & Alerts
+          <i class="fa-solid fa-lock"></i> Password & Security
         </button>
       </div>
 
@@ -526,7 +529,7 @@
         <!-- Tab 1: Pending Access Requests -->
         <div id="manageViewPending">
           <p class="modal-section-desc">
-            New users waiting for your permission. Click <strong>"Allow Access"</strong> to approve them as Sub-Admin, or <strong>"Reject"</strong> to deny access.
+            Users currently requesting admin access with 4545. Click <strong>"Allow Access"</strong> to grant instant Sub-Admin access, or <strong>"Assign Key"</strong> to generate a unique Private Key for their exact name.
           </p>
           <div id="pendingRequestsList" class="devices-list-container">
             <!-- Dynamically populated -->
@@ -541,7 +544,7 @@
         <!-- Tab 2: Approved Active Admins (Delete / Remove Capability) -->
         <div id="manageViewApproved" style="display: none;">
           <p class="modal-section-desc">
-            All users currently authorized as Sub-Admins. You can click <strong>"Delete / Remove Admin"</strong> at any time to instantly revoke access and lock them out!
+            All users currently authorized as Sub-Admins. You can assign them Private Keys or click <strong>"Delete / Remove Admin"</strong> to instantly revoke access and lock them out.
           </p>
           <div id="approvedAdminsList" class="devices-list-container">
             <!-- Dynamically populated -->
@@ -553,19 +556,16 @@
           </div>
         </div>
 
-        <!-- Tab 3: Password & Alert Notification Settings -->
+        <!-- Tab 3: Password & Security Settings -->
         <div id="manageViewSecurity" style="display: none;">
           <div class="security-card-box">
-            <h4><i class="fa-solid fa-envelope-shield"></i> Master Owner Email Notifications</h4>
-            <p>Instant approval requests and unauthorized access attempts are delivered to:</p>
+            <h4><i class="fa-solid fa-shield-halved"></i> Master Mind System Security</h4>
+            <p>Direct owner authority (Kausar Hayat). Cross-device live sync via Firebase Realtime Database.</p>
             <div class="owner-email-display">
-              <i class="fa-solid fa-at"></i>
-              <strong>iamkausarhayat100@gmail.com</strong>
-              <span class="badge-verified"><i class="fa-solid fa-check-double"></i> Primary Master</span>
+              <i class="fa-solid fa-crown" style="color: #fbbf24;"></i>
+              <strong>Master Mind Authority: Kausar Hayat</strong>
+              <span class="badge-verified"><i class="fa-solid fa-check-double"></i> Verified Owner</span>
             </div>
-            <button class="btn btn-secondary btn-sm mt-2" onclick="sendTestSecurityEmail()">
-              <i class="fa-solid fa-paper-plane"></i> Send Test Notification Email
-            </button>
           </div>
 
           <div class="security-card-box mt-3">
@@ -589,7 +589,7 @@
         <!-- Tab 4: Admin Private Keys Generator (Master Mind Only) -->
         <div id="manageViewKeys" style="display: none;">
           <p class="modal-section-desc">
-            Assign unique 4-digit Private Keys to authorized Admins. Admins will enter their exact name and this key to log in directly without needing repeated email approvals.
+            Assign unique 4-digit Private Keys to authorized Admins. When an admin logs in, they must enter their exact name (matching this record), admin password 4545, and this Private Key.
           </p>
 
           <!-- Create New Key Form -->
@@ -611,7 +611,7 @@
               </button>
             </div>
             <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem;">
-              <i class="fa-solid fa-circle-info" style="color: #60a5fa;"></i> Exact spelling (capital & small letters) is matched when the Admin logs in.
+              <i class="fa-solid fa-circle-info" style="color: #60a5fa;"></i> Exact spelling is matched when the Admin enters their credentials with password 4545.
             </div>
           </div>
 
@@ -630,6 +630,68 @@
           </div>
         </div>
 
+        <!-- Tab 5: Activity & Audit Logs (Master Mind Realtime Tracking) -->
+        <div id="manageViewAudit" style="display: none;">
+          <p class="modal-section-desc">
+            Complete real-time activity and audit log of all admin operations. Tracks who accessed the portal, what late entries were added, edited, deleted, or paid, and exact timestamps.
+          </p>
+
+          <!-- Audit Filters & Search Bar -->
+          <div class="audit-controls-bar">
+            <div class="audit-filter-group">
+              <div class="audit-select-wrap">
+                <label><i class="fa-solid fa-user-shield"></i> Filter by Admin:</label>
+                <select id="auditFilterAdmin" onchange="renderAuditLogsList()">
+                  <option value="all">All Admins</option>
+                </select>
+              </div>
+              <div class="audit-select-wrap">
+                <label><i class="fa-solid fa-filter"></i> Action Type:</label>
+                <select id="auditFilterAction" onchange="renderAuditLogsList()">
+                  <option value="all">All Actions</option>
+                  <option value="LOGIN">Logins & Access</option>
+                  <option value="ADD_STUDENT">Added Entries</option>
+                  <option value="UPDATE_PAYMENT">Payment Updates</option>
+                  <option value="EDIT_STUDENT">Edited Entries</option>
+                  <option value="DELETE_STUDENT">Deleted Entries</option>
+                  <option value="LOGOUT">Logouts</option>
+                </select>
+              </div>
+            </div>
+            <div class="audit-actions-right">
+              <button class="btn btn-secondary btn-sm" onclick="clearAuditLogs()" title="Clear Audit Logs (Master Only)">
+                <i class="fa-solid fa-trash-can"></i> Clear Logs
+              </button>
+            </div>
+          </div>
+
+          <!-- Audit Stats Strip -->
+          <div class="audit-stats-strip">
+            <div class="audit-stat-item">
+              <span class="audit-stat-num" id="auditStatTotalCount">0</span>
+              <span class="audit-stat-lbl">Total Events</span>
+            </div>
+            <div class="audit-stat-item">
+              <span class="audit-stat-num" id="auditStatCrudCount">0</span>
+              <span class="audit-stat-lbl">CRUD Operations</span>
+            </div>
+            <div class="audit-stat-item">
+              <span class="audit-stat-num" id="auditStatLastActive">None</span>
+              <span class="audit-stat-lbl">Latest Activity</span>
+            </div>
+          </div>
+
+          <!-- Dynamic Activity Log List -->
+          <div id="adminAuditLogsList" class="audit-logs-container">
+            <!-- Dynamically populated -->
+          </div>
+          <div id="emptyAdminAuditLogs" class="empty-requests-box" style="display: none;">
+            <i class="fa-solid fa-clipboard-check"></i>
+            <h4>No Activity Recorded Yet</h4>
+            <p>Admin logins, late entries, payment changes, and edits will appear here in real time.</p>
+          </div>
+        </div>
+
       </div>
 
       <div class="modal-footer">
@@ -637,20 +699,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Hidden iframe & form for FormSubmit (Guarantees email delivery on all browsers & local files) -->
-  <iframe name="fc_email_iframe" id="fc_email_iframe" style="display: none;"></iframe>
-  <form id="fc_hidden_email_form" action="https://formsubmit.co/iamkausarhayat100@gmail.com" method="POST" target="fc_email_iframe" style="display: none;">
-    <input type="hidden" name="_subject" id="fc_email_subject" value="Fine Collector Alert">
-    <input type="hidden" name="_captcha" value="false">
-    <input type="hidden" name="_template" value="table">
-    <input type="hidden" name="Requester_Name" id="fc_email_name" value="">
-    <input type="hidden" name="Device_Info" id="fc_email_device" value="">
-    <input type="hidden" name="Alert_Message" id="fc_email_msg" value="">
-    <input type="hidden" name="CLICK_TO_ALLOW" id="fc_email_link" value="">
-    <input type="hidden" name="CLICK_TO_DENY" id="fc_email_deny_link" value="">
-    <input type="hidden" name="Timestamp" id="fc_email_time" value="">
-  </form>
 
   <!-- Change PIN Modal (Master Protected & Centrally Synchronized) -->
   <div class="modal-overlay" id="pinModal" onclick="handleModalOverlayClick(event, 'pinModal')">
@@ -665,7 +713,7 @@
           <i class="fa-solid fa-lock"></i>
           <div>
             <strong>Master Owner Protection:</strong>
-            <p>Only Master Admin (<strong>iamkausarhayat100@gmail.com</strong>) is authorized to change the Admin Password. This will synchronize across all devices.</p>
+            <p>Only Master Admin (<strong>Kausar Hayat</strong>) is authorized to change the Admin Password. This will synchronize across all devices.</p>
           </div>
         </div>
 

@@ -12,10 +12,10 @@ const DEFAULT_FIREBASE_DB_URL = "https://fine-collector-default-rtdb.firebaseio.
 const STATE = {
   students: [],
   isAdmin: false,
-  isMasterAdmin: false,  // True only for owner (iamkausarhayat100@gmail.com)
+  isMasterAdmin: false,  // True only for owner (Kausar Hayat)
   adminRole: 'guest',    // 'master' | 'subadmin' | 'guest'
+  adminName: '',         // Name of current logged-in admin (e.g. 'Ali Khan')
   adminPin: '4545',      // Central Admin Password
-  masterEmail: 'iamkausarhayat100@gmail.com',
   masterKey: '4545',     // Secret Master Passkey for Kausar Hayat
   deviceId: '',
   deviceName: '',
@@ -24,6 +24,9 @@ const STATE = {
   isMasterMindClaimed: true, // Single Master Mind permanent authority (Kausar Hayat)
   pendingLogin: false,
   pendingDeviceIdToApprove: null,
+  auditLogs: [],         // Full audit trail of all logins & CRUD actions
+  auditFilterAdmin: 'all',
+  auditFilterAction: 'all',
   currentFilter: {
     search: '',
     date: 'all',    // Default to 'all' so records are never hidden accidentally
@@ -199,86 +202,290 @@ function initDeviceId() {
 }
 
 /**
- * Dispatches instant email notification to Master Mind (iamkausarhayat100@gmail.com)
- * High-speed single delivery with keepalive to avoid spam queueing and delay
+ * Master Mind Security & Audit Logging System
+ * Tracks who accessed the portal, exact timestamps, and all CRUD operations
+ * Note: External email notifications disabled per user requirement.
  */
 function sendSecurityEmail(subject, details = {}) {
-  try {
-    const timeStr = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'medium' });
-    const allowLink = details.CLICK_TO_ALLOW || details.CLICK_TO_ALLOW_ADMIN || details.CLICK_TO_ALLOW_MASTER || details.Approval_Link || '';
-    const denyLink = details.CLICK_TO_DENY || details.Denial_Link || '';
-    const requester = details.Requester_Name || details.Applicant_Name || details.User_Name || 'Admin Requester';
-    const message = details.Question || details.Message || subject;
-
-    // 1. ALWAYS populate and submit the hidden HTML form targeted at hidden iframe
-    // This works on every browser, localhost, file://, and ignores CORS/AJAX restrictions
-    const form = document.getElementById('fc_hidden_email_form');
-    if (form) {
-      const subjEl = document.getElementById('fc_email_subject');
-      const nameEl = document.getElementById('fc_email_name');
-      const devEl = document.getElementById('fc_email_device');
-      const msgEl = document.getElementById('fc_email_msg');
-      const linkEl = document.getElementById('fc_email_link');
-      const denyEl = document.getElementById('fc_email_deny_link');
-      const timeEl = document.getElementById('fc_email_time');
-
-      if (subjEl) subjEl.value = `Fine Collector: ${subject}`;
-      if (nameEl) nameEl.value = requester;
-      if (devEl) devEl.value = details.Device_Info || STATE.deviceName;
-      if (msgEl) msgEl.value = message;
-      if (linkEl) linkEl.value = allowLink;
-      if (denyEl) denyEl.value = denyLink;
-      if (timeEl) timeEl.value = timeStr;
-
-      try {
-        form.submit();
-      } catch (fe) {
-        console.warn('Hidden form submit warning:', fe);
-      }
-    }
-
-    // 2. ALSO send direct AJAX fetch with keepalive as parallel delivery
-    const payload = {
-      _subject: `Fine Collector Alert: ${subject}`,
-      _template: "table",
-      _captcha: "false",
-      Email_Recipient: STATE.masterEmail,
-      Requester_Name: requester,
-      Device_Info: details.Device_Info || STATE.deviceName,
-      Alert_Message: message,
-      CLICK_TO_ALLOW: allowLink,
-      CLICK_TO_DENY: denyLink,
-      Timestamp: timeStr
-    };
-
-    fetch(`https://formsubmit.co/ajax/${STATE.masterEmail}`, {
-      method: "POST",
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify(payload),
-      keepalive: true
-    }).then(res => res.json()).then(data => {
-      console.log('AJAX email response:', data);
-    }).catch(err => {
-      console.warn('AJAX email error (iframe form already submitted):', err);
-    });
-  } catch (e) {
-    console.warn('Security email dispatch error:', e);
-  }
+  // Email sending completely disabled
+  return;
 }
 
 function sendTestSecurityEmail() {
-  showToast('Sending test email to ' + STATE.masterEmail + '...', 'info');
-  sendSecurityEmail('Owner Email Notification Test', {
-    Test_Status: 'Working successfully',
-    Device_Initiated: STATE.deviceName,
-    Message: 'This is a test notification confirming that security alerts for iamkausarhayat100@gmail.com are active.'
-  });
+  showToast('Email alerts are disabled. Activity tracking is active on Master Page.', 'info');
+}
+
+/**
+ * Records an immutable audit log entry locally and in Firebase Cloud
+ */
+function recordAuditLog({ actionType, details, adminName, role, studentId, studentName, metadata = {} }) {
+  try {
+    const currentName = adminName || STATE.adminName || (STATE.isMasterAdmin ? 'Kausar Hayat (Master Owner)' : (sessionStorage.getItem('fc_admin_name') || 'Admin'));
+    const currentRole = role || (STATE.isMasterAdmin ? 'Master Admin' : (STATE.adminRole === 'master' ? 'Master Admin' : 'Sub-Admin'));
+    const logId = 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 5);
+    
+    const now = new Date();
+    const timeFormatted = now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    const logEntry = {
+      id: logId,
+      timestamp: Date.now(),
+      timeFormatted: timeFormatted,
+      adminName: currentName,
+      role: currentRole,
+      device: STATE.deviceName || getDeviceInfo(),
+      actionType: actionType || 'GENERAL',
+      details: details || '',
+      studentId: studentId || null,
+      studentName: studentName || null,
+      metadata: metadata || {}
+    };
+
+    // 1. Maintain in State
+    if (!Array.isArray(STATE.auditLogs)) STATE.auditLogs = [];
+    STATE.auditLogs.unshift(logEntry);
+    if (STATE.auditLogs.length > 300) STATE.auditLogs = STATE.auditLogs.slice(0, 300);
+
+    // 2. Persist to localStorage
+    try {
+      localStorage.setItem('fc_admin_audit_logs', JSON.stringify(STATE.auditLogs));
+    } catch (e) {
+      console.warn('LocalStorage error saving audit log:', e);
+    }
+
+    // 3. Persist to Firebase Realtime Database for cross-device live monitoring
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref(`security/admin_audit_logs/${logId}`).set(logEntry).catch(e => {
+        console.warn('Firebase audit log sync error:', e);
+      });
+    }
+
+    // Refresh UI if visible
+    renderAuditLogsList();
+  } catch (err) {
+    console.warn('recordAuditLog error:', err);
+  }
+}
+
+/**
+ * Renders the Audit Logs list inside Admin Access Management modal
+ */
+function renderAuditLogsList() {
+  const listEl = document.getElementById('adminAuditLogsList');
+  const emptyEl = document.getElementById('emptyAdminAuditLogs');
+  const totalCountEl = document.getElementById('auditStatTotalCount');
+  const crudCountEl = document.getElementById('auditStatCrudCount');
+  const lastActiveEl = document.getElementById('auditStatLastActive');
+  const tabBadgeEl = document.getElementById('manageTabAuditBadge');
+  const filterAdminSelect = document.getElementById('auditFilterAdmin');
+  const filterActionSelect = document.getElementById('auditFilterAction');
+
+  if (!listEl) return;
+
+  const logs = Array.isArray(STATE.auditLogs) ? STATE.auditLogs : [];
+
+  // Update Tab Badge
+  if (tabBadgeEl) tabBadgeEl.textContent = logs.length;
+
+  // Update Dynamic Admin Filter Options
+  if (filterAdminSelect) {
+    const currentSelected = filterAdminSelect.value || 'all';
+    const distinctAdmins = Array.from(new Set(logs.map(l => l.adminName).filter(Boolean)));
+    
+    // Keep 'all' option plus distinct admins
+    filterAdminSelect.innerHTML = '<option value="all">All Admins</option>' + distinctAdmins.map(name => {
+      return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+    }).join('');
+
+    // Restore selected value if still present
+    if (distinctAdmins.includes(currentSelected)) {
+      filterAdminSelect.value = currentSelected;
+    } else {
+      filterAdminSelect.value = 'all';
+    }
+  }
+
+  // Calculate Stat Strips
+  if (totalCountEl) totalCountEl.textContent = logs.length;
+  if (crudCountEl) {
+    const crudActions = ['ADD_STUDENT', 'UPDATE_PAYMENT', 'EDIT_STUDENT', 'DELETE_STUDENT', 'CLEAR_ALL'];
+    const crudCount = logs.filter(l => crudActions.includes(l.actionType)).length;
+    crudCountEl.textContent = crudCount;
+  }
+  if (lastActiveEl) {
+    if (logs.length > 0 && logs[0].adminName) {
+      lastActiveEl.textContent = logs[0].adminName;
+    } else {
+      lastActiveEl.textContent = 'None';
+    }
+  }
+
+  // Filter logs based on dropdown selections
+  const selectedAdmin = filterAdminSelect ? filterAdminSelect.value : 'all';
+  const selectedAction = filterActionSelect ? filterActionSelect.value : 'all';
+
+  let filtered = logs;
+  if (selectedAdmin && selectedAdmin !== 'all') {
+    filtered = filtered.filter(l => l.adminName === selectedAdmin);
+  }
+  if (selectedAction && selectedAction !== 'all') {
+    filtered = filtered.filter(l => l.actionType === selectedAction);
+  }
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = 'block';
+    return;
+  }
+
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  listEl.innerHTML = filtered.map(log => {
+    let badgeClass = 'badge-action-login';
+    let iconClass = 'fa-solid fa-right-to-bracket';
+    let label = log.actionType;
+
+    switch (log.actionType) {
+      case 'LOGIN':
+        badgeClass = 'badge-action-login';
+        iconClass = 'fa-solid fa-right-to-bracket';
+        label = 'Access / Login';
+        break;
+      case 'LOGIN_REQUEST':
+        badgeClass = 'badge-action-payment';
+        iconClass = 'fa-solid fa-clock';
+        label = 'Access Requested';
+        break;
+      case 'ADD_STUDENT':
+        badgeClass = 'badge-action-add';
+        iconClass = 'fa-solid fa-user-plus';
+        label = 'Add Record';
+        break;
+      case 'UPDATE_PAYMENT':
+        badgeClass = 'badge-action-payment';
+        iconClass = 'fa-solid fa-receipt';
+        label = 'Payment Status';
+        break;
+      case 'EDIT_STUDENT':
+        badgeClass = 'badge-action-edit';
+        iconClass = 'fa-solid fa-pen-to-square';
+        label = 'Edit Record';
+        break;
+      case 'DELETE_STUDENT':
+        badgeClass = 'badge-action-delete';
+        iconClass = 'fa-solid fa-trash-can';
+        label = 'Delete Record';
+        break;
+      case 'LOGOUT':
+        badgeClass = 'badge-action-logout';
+        iconClass = 'fa-solid fa-right-from-bracket';
+        label = 'Logout';
+        break;
+      case 'KEY_ASSIGNED':
+        badgeClass = 'badge-action-key';
+        iconClass = 'fa-solid fa-key';
+        label = 'Key Assigned';
+        break;
+      case 'KEY_REVOKED':
+        badgeClass = 'badge-action-delete';
+        iconClass = 'fa-solid fa-key';
+        label = 'Key Revoked';
+        break;
+      case 'PERMISSION_GRANTED':
+        badgeClass = 'badge-action-grant';
+        iconClass = 'fa-solid fa-shield-check';
+        label = 'Access Allowed';
+        break;
+      case 'PERMISSION_REJECTED':
+      case 'ADMIN_REVOKED':
+        badgeClass = 'badge-action-delete';
+        iconClass = 'fa-solid fa-ban';
+        label = 'Access Revoked';
+        break;
+      case 'CLEAR_ALL':
+        badgeClass = 'badge-action-delete';
+        iconClass = 'fa-solid fa-trash-arrow-up';
+        label = 'Clear All';
+        break;
+    }
+
+    return `
+      <div class="audit-log-card">
+        <div class="audit-header-row">
+          <div class="audit-admin-wrap">
+            <span class="audit-admin-name">
+              <i class="fa-solid fa-user-shield"></i> ${escapeHtml(log.adminName || 'Admin')}
+            </span>
+            <span class="audit-badge ${badgeClass}">
+              <i class="${iconClass}"></i> ${label}
+            </span>
+          </div>
+          <span class="audit-time">
+            <i class="fa-regular fa-clock"></i> ${escapeHtml(log.timeFormatted || '')}
+          </span>
+        </div>
+        <div class="audit-body">
+          ${escapeHtml(log.details || '')}
+        </div>
+        <div class="audit-footer-row">
+          <span><i class="fa-solid fa-laptop"></i> ${escapeHtml(log.device || 'Device')}</span>
+          <span>Role: <strong>${escapeHtml(log.role || 'Admin')}</strong></span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+/**
+ * Clears all Audit Logs (Master Mind Only)
+ */
+function clearAuditLogs() {
+  if (!STATE.isMasterAdmin) {
+    showToast('Permission Denied: Only Master Mind can clear audit logs', 'error');
+    return;
+  }
+
+  if (confirm('Are you sure you want to clear all Audit Logs? This will wipe the activity history.')) {
+    STATE.auditLogs = [];
+    localStorage.removeItem('fc_admin_audit_logs');
+    if (STATE.firebaseDb) {
+      STATE.firebaseDb.ref('security/admin_audit_logs').remove().catch(e => console.warn(e));
+    }
+    renderAuditLogsList();
+    showToast('Audit logs cleared', 'info');
+  }
+}
+
+/**
+ * Filters the audit logs to a specific admin and switches to audit tab
+ */
+function filterAuditLogsForAdmin(adminName) {
+  switchManageTab('audit');
   setTimeout(() => {
-    showToast('Test email dispatched to ' + STATE.masterEmail + '!', 'success');
-  }, 1000);
+    const filterAdminSelect = document.getElementById('auditFilterAdmin');
+    if (filterAdminSelect) {
+      filterAdminSelect.value = adminName;
+      renderAuditLogsList();
+    }
+  }, 50);
+}
+
+/**
+ * Prefills the Create Private Key form with an Admin's exact name and generates a random 4-digit key
+ */
+function prefillAssignPrivateKey(adminName) {
+  switchManageTab('keys');
+  setTimeout(() => {
+    const nameInp = document.getElementById('newAdminKeyName');
+    const keyInp = document.getElementById('newAdminKeyValue');
+    if (nameInp) nameInp.value = adminName;
+    if (keyInp) {
+      const randomCode = Math.floor(1000 + Math.random() * 9000);
+      keyInp.value = String(randomCode);
+      keyInp.focus();
+    }
+    showToast(`Enter 4-digit key for "${adminName}" and click Assign Key`, 'info');
+  }, 50);
 }
 
 /* ==================== ADMIN STATE ==================== */
@@ -297,13 +504,23 @@ function loadAdminState() {
   const isMaster = localStorage.getItem('fc_is_master_owner') === 'true';
   const sessionAdmin = sessionStorage.getItem('fc_is_admin') === 'true';
   const sessionRole = sessionStorage.getItem('fc_admin_role') || (isMaster ? 'master' : 'subadmin');
+  const sessionName = sessionStorage.getItem('fc_admin_name') || (isMaster ? 'Kausar Hayat (Master Owner)' : 'Admin');
 
   if (sessionAdmin) {
     STATE.isAdmin = true;
     STATE.isMasterAdmin = isMaster;
     STATE.adminRole = sessionRole;
+    STATE.adminName = sessionName;
     updateAdminUI();
   }
+
+  // Load audit logs from local storage fallback
+  try {
+    const savedLogs = localStorage.getItem('fc_admin_audit_logs');
+    if (savedLogs) {
+      STATE.auditLogs = JSON.parse(savedLogs) || [];
+    }
+  } catch (e) {}
 }
 
 /* ==================== STORAGE & REALTIME CLOUD ==================== */
@@ -391,16 +608,26 @@ function initCloudOrLocalStorage() {
           STATE.isMasterMindClaimed = true;
           STATE.masterOwnerData = ownerData;
         } else {
-          // Initialize permanent single master owner
+          // Initialize permanent single master owner (Kausar Hayat)
           STATE.firebaseDb.ref('security/system_master_owner').set({
             ownerName: 'Kausar Hayat',
-            ownerEmail: 'iamkausarhayat100@gmail.com',
+            role: 'master',
             claimed: true,
             claimedAt: Date.now()
           });
           STATE.isMasterMindClaimed = true;
         }
         updateMasterLoginViewMode();
+      });
+
+      // 7. Realtime listener for Activity & Audit Logs (Master Mind Realtime Monitoring)
+      STATE.firebaseDb.ref('security/admin_audit_logs').limitToLast(200).on('value', (snapshot) => {
+        const val = snapshot.val() || {};
+        STATE.auditLogs = Object.values(val).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        try {
+          localStorage.setItem('fc_admin_audit_logs', JSON.stringify(STATE.auditLogs));
+        } catch (e) {}
+        renderAuditLogsList();
       });
 
       // If current device is Master Owner, ensure its presence in cloud devices
@@ -909,6 +1136,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     nameInput.focus();
 
     showToast(`Added ${name} to late records`, 'success');
+
+    // Audit Log for Create Late Record
+    recordAuditLog({
+      actionType: 'ADD_STUDENT',
+      details: `Added late record for "${name}" (Fine: Rs. ${fine}, Time: ${time}, Date: ${date}, Status: ${paid ? 'Paid' : 'Pending'})`,
+      studentId: newStudent.id,
+      studentName: name
+    });
   }
 
   function togglePayment(studentId) {
@@ -928,6 +1163,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
       ? `Marked ${student.name} as Paid (Rs. ${student.fine})`
       : `Marked ${student.name} as Pending`;
     showToast(msg, 'success');
+
+    // Audit Log for Payment Status Update
+    recordAuditLog({
+      actionType: 'UPDATE_PAYMENT',
+      details: `Marked student "${student.name}" as ${student.paid ? 'PAID (Rs. ' + student.fine + ')' : 'PENDING'}`,
+      studentId: student.id,
+      studentName: student.name
+    });
   }
 
   function deleteEntry(studentId) {
@@ -937,10 +1180,22 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     if (!student) return;
 
     if (confirm(`Are you sure you want to delete the record for ${student.name}?`)) {
+      const deletedStudentName = student.name;
+      const deletedFine = student.fine;
+      const deletedDate = student.date;
+
       STATE.students = STATE.students.filter(s => s.id !== studentId);
       saveState();
       renderAll();
-      showToast(`${student.name} record deleted`, 'info');
+      showToast(`${deletedStudentName} record deleted`, 'info');
+
+      // Audit Log for Record Deletion
+      recordAuditLog({
+        actionType: 'DELETE_STUDENT',
+        details: `Deleted late record for student "${deletedStudentName}" (Fine: Rs. ${deletedFine}, Date: ${deletedDate})`,
+        studentId: studentId,
+        studentName: deletedStudentName
+      });
     }
   }
 
@@ -948,15 +1203,22 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     if (!STATE.isAdmin) return;
 
     if (!STATE.isMasterAdmin) {
-      showToast('Permission Denied: Only Master Admin (iamkausarhayat100@gmail.com) can clear records', 'error');
+      showToast('Permission Denied: Only Master Admin (Kausar Hayat) can clear records', 'error');
       return;
     }
 
     if (confirm("Are you sure you want to clear all late records? This action cannot be undone.")) {
+      const totalCleared = STATE.students.length;
       STATE.students = [];
       saveState();
       renderAll();
       showToast("All records cleared", "info");
+
+      // Audit Log for Clearing All Records
+      recordAuditLog({
+        actionType: 'CLEAR_ALL',
+        details: `Master Mind cleared all records (${totalCleared} late student entries removed)`
+      });
     }
   }
 
@@ -985,6 +1247,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     const student = STATE.students.find(s => s.id === id);
     if (!student) return;
 
+    const oldName = student.name;
     student.name = document.getElementById('editStudentName').value.trim();
     student.date = document.getElementById('editEntryDate').value;
     student.time = document.getElementById('editArrivalTime').value.trim();
@@ -995,6 +1258,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     renderAll();
     closeEditModal();
     showToast(`Updated record for ${student.name}`, 'success');
+
+    // Audit Log for Record Edit
+    recordAuditLog({
+      actionType: 'EDIT_STUDENT',
+      details: `Edited record for "${student.name}" (Fine: Rs. ${student.fine}, Arrival: ${student.time}, Date: ${student.date}, Status: ${student.paid ? 'Paid' : 'Pending'})`,
+      studentId: student.id,
+      studentName: student.name
+    });
   }
 
   /* ==================== ADMIN AUTHENTICATION ==================== */
@@ -1098,45 +1369,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
   }
 
   function sendMasterRecoveryEmail() {
-    const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
-    const pathname = window.location.pathname || '/fine-collector/';
-    const baseUrl = currentOrigin.includes('github.io') ? `${currentOrigin}${pathname}` : 'https://iamkausarhayat.github.io/fine-collector/';
-    const masterApprovalLink = `${baseUrl}?action=approve_master&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
-    const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
-
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
-        id: STATE.deviceId,
-        name: 'Kausar Hayat (Master Recovery Request)',
-        device: STATE.deviceName,
-        status: 'pending_master',
-        role: 'pending_master',
-        isOwner: false,
-        requestedAt: Date.now()
-      }).catch(e => console.warn('Firebase set error:', e));
-    }
-
-    sendSecurityEmail('👑 Master Mind Recovery Request', {
-      Request_Type: 'Master Mind Recovery Request',
-      Requester_Name: 'Kausar Hayat (Master Recovery)',
-      Applicant_Role: '👑 Master Mind',
-      Device_Info: STATE.deviceName,
-      Device_ID: STATE.deviceId,
-      Question: `Master Mind login requested on device (${STATE.deviceName}). If this is you (Kausar Hayat), tap Allow to authorize Master Mind control on this device.`,
-      CLICK_TO_ALLOW: masterApprovalLink,
-      CLICK_TO_ALLOW_MASTER: masterApprovalLink,
-      CLICK_TO_DENY: denialLink,
-      Status: 'Pending Master Mind Confirmation'
-    });
-
-    showWaitingScreen('Kausar Hayat (Master Recovery)', 'Master Admin');
-    showToast('Master unlock link dispatched to iamkausarhayat100@gmail.com', 'info');
+    showToast('Please enter Master Security Password (4545) to login.', 'info');
+    switchLoginTab('master');
   }
 
   /**
    * ADMIN LOGIN: Validates Name & 4545 Password
    * - If 4-Digit Private Key is provided: Verifies against Master Mind assigned keys. If match -> Instant Unlock!
-   * - If Private Key is NOT provided: NEVER gives direct access! FORAN dispatches email to iamkausarhayat100@gmail.com and displays "Wait for Master Mind Permission" screen!
+   * - If Private Key is NOT provided: Submits live real-time request to Master Page (NO EMAILS!). Master Mind clicks "Allow Access" from Admin Manager!
    */
   function handleAdminLogin() {
     const nameInput = document.getElementById('adminLoginNameInput');
@@ -1177,13 +1417,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (errorMsg) errorMsg.style.display = 'none';
 
+    const allKeys = Object.values(STATE.adminPrivateKeys || {}).filter(Boolean);
+
     // 1. IF USER ENTERED A 4-DIGIT PRIVATE KEY: Check key authentication
     if (enteredKey) {
-      const allKeys = Object.values(STATE.adminPrivateKeys || {}).filter(Boolean);
       const matchedKeyEntry = allKeys.find(k => 
         k && 
         k.status === 'active' && 
-        k.name.trim() === enteredName &&   // Exact match
+        k.name.trim() === enteredName &&   // Exact case-sensitive match
         String(k.key).trim() === enteredKey
       );
 
@@ -1195,6 +1436,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
         STATE.isAdmin = true;
         STATE.isMasterAdmin = isMasterOverride;
         STATE.adminRole = isMasterOverride ? 'master' : 'subadmin';
+        STATE.adminName = enteredName;
         sessionStorage.setItem('fc_is_admin', 'true');
         sessionStorage.setItem('fc_admin_name', enteredName);
         sessionStorage.setItem('fc_admin_role', STATE.adminRole);
@@ -1219,6 +1461,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
           }
         }
 
+        // Record Audit Trail
+        recordAuditLog({
+          adminName: enteredName,
+          role: isMasterOverride ? 'Master Admin' : 'Sub-Admin',
+          actionType: 'LOGIN',
+          details: `Accessed Admin Portal with 4-digit Private Key (${enteredKey})`
+        });
+
         closeAdminModal();
         updateAdminUI();
         renderAll();
@@ -1226,7 +1476,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
         return;
       } else {
         if (errorMsg) {
-          errorMsg.textContent = 'Invalid 4-Digit Private Key! Enter correct key, or leave it empty to request permission via email.';
+          errorMsg.textContent = `Invalid 4-Digit Private Key for "${enteredName}"! Check exact spelling and key code, or leave blank to submit access request.`;
           errorMsg.style.display = 'block';
         }
         if (keyInput) keyInput.focus();
@@ -1234,16 +1484,20 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
       }
     }
 
-    // 2. IF PRIVATE KEY IS EMPTY: NEVER GIVE DIRECT ACCESS!
-    // SENDS DIRECT EMAIL TO iamkausarhayat100@gmail.com & ENTERS WAITING SCREEN
-    const currentOrigin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://iamkausarhayat.github.io';
-    const pathname = window.location.pathname || '/fine-collector/';
-    const baseUrl = (currentOrigin.includes('github.io') || currentOrigin.includes('localhost') || currentOrigin.includes('127.0.0.1'))
-      ? `${currentOrigin}${pathname}`
-      : 'https://iamkausarhayat.github.io/fine-collector/';
-    const approvalLink = `${baseUrl}?action=approve&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
-    const denialLink = `${baseUrl}?action=reject&dev=${encodeURIComponent(STATE.deviceId)}&key=4545`;
+    // 2. IF PRIVATE KEY WAS NOT PROVIDED:
+    // Check if Master Mind has already created a Private Key for this exact name
+    const existingKey = allKeys.find(k => k && k.status === 'active' && k.name.trim() === enteredName);
+    if (existingKey) {
+      if (errorMsg) {
+        errorMsg.textContent = `A Private Key has been created for "${enteredName}". Please enter your 4-digit Private Key to access the Admin portal.`;
+        errorMsg.style.display = 'block';
+      }
+      if (keyInput) keyInput.focus();
+      return;
+    }
 
+    // 3. SUBMIT REALTIME REQUEST TO MASTER PAGE (NO EMAILS DISPATCHED)
+    // Master Mind sees this request instantly in Admin Access Management
     if (STATE.firebaseDb) {
       STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
         id: STATE.deviceId,
@@ -1256,22 +1510,16 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
       }).catch(() => {});
     }
 
-    sendSecurityEmail(`🛡️ Admin Access Request from ${enteredName}`, {
-      Request_Type: 'Someone wants to become an Admin',
-      Requester_Name: enteredName,
-      Applicant_Name: enteredName,
-      Applicant_Role: 'Sub-Admin',
-      Device_Info: STATE.deviceName,
-      Device_ID: STATE.deviceId,
-      Question: `User "${enteredName}" entered 4545 on device (${STATE.deviceName}) and requested Admin access. Do you want to allow or deny this person?`,
-      CLICK_TO_ALLOW: approvalLink,
-      CLICK_TO_ALLOW_ADMIN: approvalLink,
-      CLICK_TO_DENY: denialLink,
-      Status: 'Pending Master Mind Permission'
+    // Record Audit Trail
+    recordAuditLog({
+      adminName: enteredName,
+      role: 'Sub-Admin',
+      actionType: 'LOGIN_REQUEST',
+      details: `Entered password 4545 and requested Admin access (Awaiting Master Mind permission)`
     });
 
     showWaitingScreen(enteredName, 'Sub-Admin');
-    showToast('Permission alert dispatched to Kausar Hayat (iamkausarhayat100@gmail.com)', 'info');
+    showToast('Authorization request submitted. Waiting for Master Mind to allow access.', 'info');
   }
 
   // Backward-compatibility wrappers so all onclick references work safely
@@ -1381,6 +1629,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
   async function verifyMasterSecurityKey(enteredKey) {
     if (!enteredKey) return false;
+    if (enteredKey === '4545' || enteredKey === STATE.masterKey || enteredKey === STATE.adminPin) return true;
     try {
       const raw = MASTER_SECURITY_SALT + enteredKey;
       if (window.crypto && window.crypto.subtle) {
@@ -1406,14 +1655,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
     if (!enteredKey) {
       if (errorMsg) {
-        errorMsg.textContent = 'Please enter Master Password';
+        errorMsg.textContent = 'Please enter Master Password (4545)';
         errorMsg.style.display = 'block';
       }
       if (keyInput) keyInput.focus();
       return;
     }
 
-    // Cryptographic Salted SHA-256 Verification (Impossible to decipher from GitHub code)
+    // Cryptographic Salted SHA-256 Verification & Master PIN match
     const isMasterAuthorized = await verifyMasterSecurityKey(enteredKey);
 
     if (isMasterAuthorized) {
@@ -1422,9 +1671,10 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
       STATE.isAdmin = true;
       STATE.isMasterAdmin = true;
       STATE.adminRole = 'master';
+      STATE.adminName = 'Kausar Hayat (Master Owner)';
       localStorage.setItem('fc_is_master_owner', 'true');
       sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_name', 'Kausar Hayat');
+      sessionStorage.setItem('fc_admin_name', 'Kausar Hayat (Master Owner)');
       sessionStorage.setItem('fc_admin_role', 'master');
 
       if (STATE.firebaseDb && STATE.deviceId) {
@@ -1439,10 +1689,18 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
         }).catch(() => {});
       }
 
+      // Record Audit Trail
+      recordAuditLog({
+        adminName: 'Kausar Hayat (Master Owner)',
+        role: 'Master Admin',
+        actionType: 'LOGIN',
+        details: 'Master Mind verified & accessed Master Portal'
+      });
+
       closeAdminModal();
       updateAdminUI();
       renderAll();
-      showToast('👑 Welcome Master Mind (Kausar Hayat)! Cryptographically verified.', 'success');
+      showToast('👑 Welcome Master Mind (Kausar Hayat)! Full access unlocked.', 'success');
       return;
     }
 
@@ -1547,7 +1805,7 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
 
   function openAdminManagementModal() {
     if (!STATE.isAdmin || !STATE.isMasterAdmin) {
-      showToast('Only Master Admin (iamkausarhayat100@gmail.com) can manage admins', 'error');
+      showToast('Only Master Admin (Kausar Hayat) can manage admins', 'error');
       return;
     }
 
@@ -1564,26 +1822,32 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     const vPending = document.getElementById('manageViewPending');
     const vApproved = document.getElementById('manageViewApproved');
     const vKeys = document.getElementById('manageViewKeys');
+    const vAudit = document.getElementById('manageViewAudit');
     const vSecurity = document.getElementById('manageViewSecurity');
     const bPending = document.getElementById('tabManagePendingBtn');
     const bApproved = document.getElementById('tabManageApprovedBtn');
     const bKeys = document.getElementById('tabManageKeysBtn');
+    const bAudit = document.getElementById('tabManageAuditBtn');
     const bSecurity = document.getElementById('tabManageSecurityBtn');
 
     if (vPending) vPending.style.display = tab === 'pending' ? 'block' : 'none';
     if (vApproved) vApproved.style.display = tab === 'approved' ? 'block' : 'none';
     if (vKeys) vKeys.style.display = tab === 'keys' ? 'block' : 'none';
+    if (vAudit) vAudit.style.display = tab === 'audit' ? 'block' : 'none';
     if (vSecurity) vSecurity.style.display = tab === 'security' ? 'block' : 'none';
 
     if (bPending) bPending.classList.toggle('active', tab === 'pending');
     if (bApproved) bApproved.classList.toggle('active', tab === 'approved');
     if (bKeys) bKeys.classList.toggle('active', tab === 'keys');
+    if (bAudit) bAudit.classList.toggle('active', tab === 'audit');
     if (bSecurity) bSecurity.classList.toggle('active', tab === 'security');
 
     if (tab === 'pending' || tab === 'approved') {
       renderAdminDevicesList();
     } else if (tab === 'keys') {
       renderAdminPrivateKeysList();
+    } else if (tab === 'audit') {
+      renderAuditLogsList();
     }
   }
 
@@ -1627,6 +1891,14 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
           showToast(`Private Key for "${name}" assigned successfully!`, 'success');
           if (nameInput) nameInput.value = '';
           if (keyInput) keyInput.value = '';
+
+          // Record Audit Trail
+          recordAuditLog({
+            adminName: 'Kausar Hayat (Master Owner)',
+            role: 'Master Admin',
+            actionType: 'KEY_ASSIGNED',
+            details: `Assigned 4-digit Private Key (${key}) for Admin "${name}"`
+          });
         })
         .catch(err => {
           console.warn('Firebase key error:', err);
@@ -1637,6 +1909,15 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
       STATE.adminPrivateKeys[keyId] = keyPayload;
       localStorage.setItem('fc_admin_private_keys', JSON.stringify(STATE.adminPrivateKeys));
       showToast(`Private Key for "${name}" assigned locally!`, 'success');
+
+      // Record Audit Trail
+      recordAuditLog({
+        adminName: 'Kausar Hayat (Master Owner)',
+        role: 'Master Admin',
+        actionType: 'KEY_ASSIGNED',
+        details: `Assigned 4-digit Private Key (${key}) for Admin "${name}"`
+      });
+
       renderAdminPrivateKeysList();
       if (nameInput) nameInput.value = '';
       if (keyInput) keyInput.value = '';
@@ -1647,9 +1928,20 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
     if (!STATE.isMasterAdmin) return;
     if (!confirm('Are you sure you want to revoke this Admin Private Key? This user will immediately lose access.')) return;
 
+    const keyEntry = STATE.adminPrivateKeys && STATE.adminPrivateKeys[keyId];
+    const keyName = keyEntry ? keyEntry.name : 'Admin';
+
     if (STATE.firebaseDb) {
       STATE.firebaseDb.ref(`security/admin_private_keys/${keyId}`).remove()
-        .then(() => showToast('Admin Private Key revoked & deleted!', 'info'))
+        .then(() => {
+          showToast('Admin Private Key revoked & deleted!', 'info');
+          recordAuditLog({
+            adminName: 'Kausar Hayat (Master Owner)',
+            role: 'Master Admin',
+            actionType: 'KEY_REVOKED',
+            details: `Revoked Private Key for Admin "${keyName}"`
+          });
+        })
         .catch(e => console.warn(e));
     } else {
       if (STATE.adminPrivateKeys && STATE.adminPrivateKeys[keyId]) {
@@ -1657,6 +1949,12 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
         localStorage.setItem('fc_admin_private_keys', JSON.stringify(STATE.adminPrivateKeys));
         renderAdminPrivateKeysList();
         showToast('Admin Private Key revoked!', 'info');
+        recordAuditLog({
+          adminName: 'Kausar Hayat (Master Owner)',
+          role: 'Master Admin',
+          actionType: 'KEY_REVOKED',
+          details: `Revoked Private Key for Admin "${keyName}"`
+        });
       }
     }
   }
@@ -1701,6 +1999,9 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
           </div>
         </div>
         <div class="device-actions">
+          <button class="btn-card-logs" onclick="filterAuditLogsForAdmin('${escapeHtml(k.name)}')">
+            <i class="fa-solid fa-receipt"></i> Logs
+          </button>
           <button class="btn-card-reject" onclick="revokeAdminPrivateKey('${k.id}')" title="Revoke this Admin Private Key">
             <i class="fa-solid fa-trash-can"></i> Revoke
           </button>
@@ -1752,6 +2053,9 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
             <button class="btn-card-approve" onclick="approveDevice('${dev.id}', ${isMasterReq ? 'true' : 'false'})">
               <i class="fa-solid ${isMasterReq ? 'fa-crown' : 'fa-check'}"></i> ${isMasterReq ? 'Authorize Master' : 'Allow Access'}
             </button>
+            <button class="btn-card-key" onclick="prefillAssignPrivateKey('${escapeHtml(dev.name)}')">
+              <i class="fa-solid fa-key"></i> Assign Key
+            </button>
             <button class="btn-card-reject" onclick="rejectDevice('${dev.id}')">
               <i class="fa-solid fa-xmark"></i> Reject
             </button>
@@ -1788,6 +2092,12 @@ function showDenialScreen(message = 'You are denied by Kausar Khattak') {
             </div>
           </div>
           <div class="device-actions">
+            <button class="btn-card-key" onclick="prefillAssignPrivateKey('${escapeHtml(dev.name)}')">
+              <i class="fa-solid fa-key"></i> Assign Key
+            </button>
+            <button class="btn-card-logs" onclick="filterAuditLogsForAdmin('${escapeHtml(dev.name)}')">
+              <i class="fa-solid fa-receipt"></i> Logs
+            </button>
             <button class="btn-card-revoke" onclick="deleteAdminDevice('${dev.id}')" title="Immediately delete and kick out this admin">
               <i class="fa-solid fa-trash-can"></i> Delete Admin
             </button>
@@ -1822,11 +2132,13 @@ function approveDevice(deviceId, asMaster = false) {
 
     STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update(updatePayload).then(() => {
       showToast(`${isMaster ? 'Master' : 'Sub-Admin'} access granted to ${dev.name}`, 'success');
-      sendSecurityEmail(`${isMaster ? 'Master' : 'Sub-Admin'} Access Approved`, {
-        Approved_User: dev.name,
-        Device_Info: dev.device,
-        Role_Granted: isMaster ? 'Master Admin (Owner)' : 'Sub-Admin',
-        Approved_By: 'Kausar Hayat (Master Admin)'
+
+      // Record Audit Trail
+      recordAuditLog({
+        adminName: 'Kausar Hayat (Master Owner)',
+        role: 'Master Admin',
+        actionType: 'PERMISSION_GRANTED',
+        details: `Granted ${isMaster ? 'Master' : 'Sub-Admin'} access to "${dev.name}" (${dev.device})`
       });
     });
   }
@@ -1843,6 +2155,14 @@ function rejectDevice(deviceId) {
       rejectedAt: Date.now()
     }).then(() => {
       showToast(`Request rejected for ${dev.name}`, 'info');
+
+      // Record Audit Trail
+      recordAuditLog({
+        adminName: 'Kausar Hayat (Master Owner)',
+        role: 'Master Admin',
+        actionType: 'PERMISSION_REJECTED',
+        details: `Rejected access request for "${dev.name}" (${dev.device})`
+      });
     });
   }
 }
@@ -1860,10 +2180,13 @@ function deleteAdminDevice(deviceId) {
         revokedAt: Date.now()
       }).then(() => {
         showToast(`Admin "${dev.name}" deleted and locked out!`, 'info');
-        sendSecurityEmail('Admin Access Revoked / Deleted', {
-          Deleted_Admin: dev.name,
-          Device_Info: dev.device,
-          Deleted_By: 'Kausar Hayat (Master Admin)'
+
+        // Record Audit Trail
+        recordAuditLog({
+          adminName: 'Kausar Hayat (Master Owner)',
+          role: 'Master Admin',
+          actionType: 'ADMIN_REVOKED',
+          details: `Revoked & deleted Admin access for "${dev.name}" (${dev.device})`
         });
       });
     }
@@ -1929,11 +2252,11 @@ function handleUpdateMasterKey() {
     msgBox.style.display = 'block';
   }
 
-  sendSecurityEmail('Master Admin Changed Admin Password', {
-    Action: 'Password Changed from Manage Admins',
-    New_Password: newK,
-    Changed_By: 'Kausar Hayat (Master Admin)',
-    Device: STATE.deviceName
+  recordAuditLog({
+    adminName: 'Kausar Hayat (Master Owner)',
+    role: 'Master Admin',
+    actionType: 'PASSWORD_CHANGED',
+    details: 'Master Mind changed system Admin Password'
   });
 
   showToast('Password updated and synced everywhere', 'success');
@@ -1942,11 +2265,33 @@ function handleUpdateMasterKey() {
 }
 
 function logoutAdmin() {
+  const currentName = STATE.adminName || sessionStorage.getItem('fc_admin_name') || (STATE.isMasterAdmin ? 'Kausar Hayat (Master Owner)' : 'Admin');
+  const currentRole = STATE.isMasterAdmin ? 'Master Admin' : (STATE.adminRole === 'master' ? 'Master Admin' : 'Sub-Admin');
+
+  // Record Audit Trail
+  recordAuditLog({
+    adminName: currentName,
+    role: currentRole,
+    actionType: 'LOGOUT',
+    details: 'Logged out of Admin Portal'
+  });
+
+  // Mark device as logged_out in Firebase so session is terminated
+  if (STATE.firebaseDb && STATE.deviceId) {
+    STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
+      status: 'logged_out',
+      role: 'guest',
+      lastSeen: Date.now()
+    }).catch(() => {});
+  }
+
   STATE.isAdmin = false;
   STATE.isMasterAdmin = false;
   STATE.adminRole = 'guest';
+  STATE.adminName = '';
   sessionStorage.removeItem('fc_is_admin');
   sessionStorage.removeItem('fc_admin_role');
+  sessionStorage.removeItem('fc_admin_name');
   updateAdminUI();
   renderAll();
   showToast('Logged out of Admin mode', 'info');
@@ -2120,12 +2465,12 @@ function handleChangePin() {
     }
   }
 
-  // Send security alert email to Master
-  sendSecurityEmail('Master Admin Changed Admin Password', {
-    Action: 'Admin Password Updated',
-    New_Password: newPin,
-    Updated_By: 'Kausar Hayat (Master Admin)',
-    Device: STATE.deviceName
+  // Record Audit Trail
+  recordAuditLog({
+    adminName: 'Kausar Hayat (Master Owner)',
+    role: 'Master Admin',
+    actionType: 'PASSWORD_CHANGED',
+    details: 'Master Mind changed Admin Password from PIN Modal'
   });
 
   showToast('Admin Password successfully updated & synced!', 'success');
