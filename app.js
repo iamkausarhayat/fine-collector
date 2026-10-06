@@ -15,8 +15,8 @@ const STATE = {
   isMasterAdmin: false,  // True only for owner (Kausar Hayat)
   adminRole: 'guest',    // 'master' | 'subadmin' | 'guest'
   adminName: '',         // Name of current logged-in admin (e.g. 'Ali Khan')
-  adminPin: '4545',      // Central Admin Password
-  masterKey: '4545',     // Secret Master Passkey for Kausar Hayat
+  adminPin: '4545',      // Central Sub-Admin Password
+  masterHash: '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841', // Salted SHA-256 Hash of Secret Master PIN (Hidden)
   deviceId: '',
   deviceName: '',
   adminDevices: {},
@@ -496,9 +496,16 @@ function loadAdminState() {
     STATE.adminPin = savedPin;
   }
 
-  const savedKey = localStorage.getItem('fc_master_key');
-  if (savedKey) {
-    STATE.masterKey = savedKey;
+  // Clear any legacy plain text master key
+  if (localStorage.getItem('fc_master_key')) {
+    localStorage.removeItem('fc_master_key');
+  }
+
+  const savedMasterHash = localStorage.getItem('fc_master_hash');
+  if (savedMasterHash && savedMasterHash.length === 64) {
+    STATE.masterHash = savedMasterHash;
+  } else {
+    STATE.masterHash = MASTER_DEFAULT_PIN_HASH;
   }
 
   const isMaster = localStorage.getItem('fc_is_master_owner') === 'true';
@@ -574,14 +581,12 @@ function initCloudOrLocalStorage() {
         }
       });
 
-      // 3. Realtime listener for Master Security Passkey
-      STATE.firebaseDb.ref('security/master_key').on('value', (snapshot) => {
-        const cloudKey = snapshot.val();
-        if (cloudKey && typeof cloudKey === 'string') {
-          STATE.masterKey = cloudKey;
-          localStorage.setItem('fc_master_key', cloudKey);
-        } else if (!cloudKey) {
-          STATE.firebaseDb.ref('security/master_key').set(STATE.masterKey);
+      // 3. Realtime listener for Master Security Passkey Hash (Hidden)
+      STATE.firebaseDb.ref('security/master_hash').on('value', (snapshot) => {
+        const cloudHash = snapshot.val();
+        if (cloudHash && typeof cloudHash === 'string' && cloudHash.length === 64) {
+          STATE.masterHash = cloudHash;
+          localStorage.setItem('fc_master_hash', cloudHash);
         }
       });
 
@@ -709,17 +714,27 @@ function stopWaitingCountdown() {
   }
 }
 
-function checkUrlApprovalParams() {
+async function checkUrlApprovalParams() {
   try {
     const params = new URLSearchParams(window.location.search);
     const action = params.get('action');
     const devId = params.get('dev');
     const key = params.get('key');
 
-    if ((action === 'approve' || action === 'approve_master' || action === 'reject') && devId && (key === '4545' || key === STATE.masterKey || key === STATE.adminPin)) {
+    if (!action || !devId) return;
+
+    let isAuthorized = false;
+    const isMaster = (action === 'approve_master');
+    const isReject = (action === 'reject');
+
+    if (isMaster) {
+      isAuthorized = await verifyMasterSecurityKey(key);
+    } else if (action === 'approve' || action === 'reject') {
+      isAuthorized = (key === '4545' || key === STATE.adminPin || await verifyMasterSecurityKey(key));
+    }
+
+    if (isAuthorized) {
       if (STATE.firebaseDb) {
-        const isMaster = (action === 'approve_master');
-        const isReject = (action === 'reject');
         const updatePayload = {
           status: isReject ? 'rejected' : 'approved',
           [isReject ? 'rejectedAt' : 'approvedAt']: Date.now()
@@ -1421,16 +1436,17 @@ function retryAdminLogin() {
   }
 
   function sendMasterRecoveryEmail() {
-    showToast('Please enter Master Security Password (4545) to login.', 'info');
+    showToast('Please enter Master Security PIN to login.', 'info');
     switchLoginTab('master');
   }
 
   /**
-   * ADMIN LOGIN: Validates Name & 4545 Password
-   * - If 4-Digit Private Key is provided: Verifies against Master Mind assigned keys. If match -> Instant Unlock!
-   * - If Private Key is NOT provided: Submits live real-time request to Master Page (NO EMAILS!). Master Mind clicks "Allow Access" from Admin Manager!
+   * ADMIN LOGIN: Validates Name & Sub-Admin Password (4545) OR Secret Master PIN
+   * - If Secret Master PIN is entered: Verified via cryptographic hash -> Opens Master Page immediately!
+   * - If 4-Digit Private Key is provided with 4545: Instant unlock as Sub-Admin!
+   * - If Private Key is NOT provided: Submits live real-time request to Master Page. Master Mind clicks "Allow Access"!
    */
-  function handleAdminLogin() {
+  async function handleAdminLogin() {
     const nameInput = document.getElementById('adminLoginNameInput');
     const pinInput = document.getElementById('adminPinInput');
     const keyInput = document.getElementById('adminPrivateKeyInput');
@@ -1458,7 +1474,51 @@ function retryAdminLogin() {
       return;
     }
 
-    const isCorrectCode = (enteredPin === STATE.adminPin || enteredPin === STATE.masterKey || enteredPin === '4545' || enteredPin === '9922');
+    // 0. CHECK IF MASTER PIN WAS ENTERED (Secret Master PIN verification)
+    const isMasterFromPin = await verifyMasterSecurityKey(enteredPin);
+    const isMasterFromKey = enteredKey ? await verifyMasterSecurityKey(enteredKey) : false;
+
+    if (isMasterFromPin || isMasterFromKey) {
+      if (errorMsg) errorMsg.style.display = 'none';
+
+      STATE.isAdmin = true;
+      STATE.isMasterAdmin = true;
+      STATE.adminRole = 'master';
+      STATE.adminName = enteredName.toLowerCase().includes('kausar') ? enteredName : 'Kausar Hayat (Master Owner)';
+      localStorage.setItem('fc_is_master_owner', 'true');
+      sessionStorage.setItem('fc_is_admin', 'true');
+      sessionStorage.setItem('fc_admin_name', STATE.adminName);
+      sessionStorage.setItem('fc_admin_role', 'master');
+
+      if (STATE.firebaseDb && STATE.deviceId) {
+        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+          id: STATE.deviceId,
+          name: STATE.adminName,
+          device: STATE.deviceName,
+          status: 'approved',
+          role: 'master',
+          isOwner: true,
+          lastSeen: Date.now()
+        }).catch(() => {});
+      }
+
+      recordAuditLog({
+        adminName: STATE.adminName,
+        role: 'Master Admin',
+        actionType: 'LOGIN',
+        details: 'Master Mind verified secret PIN & accessed Master Page'
+      });
+
+      closeAdminModal();
+      updateAdminUI();
+      renderAll();
+      openAdminManagementModal();
+      showToast('👑 Welcome Master Mind! Master Page opened.', 'success');
+      return;
+    }
+
+    // 1. NORMAL SUB-ADMIN PASSWORD VALIDATION (4545)
+    const isCorrectCode = (enteredPin === STATE.adminPin || enteredPin === '4545');
     if (!isCorrectCode) {
       if (errorMsg) {
         errorMsg.textContent = 'Incorrect Admin Password! Access denied.';
@@ -1471,27 +1531,24 @@ function retryAdminLogin() {
 
     const allKeys = Object.values(STATE.adminPrivateKeys || {}).filter(Boolean);
 
-    // 1. IF USER ENTERED A 4-DIGIT PRIVATE KEY: Check key authentication
+    // 2. IF USER ENTERED A 4-DIGIT PRIVATE KEY: Check key authentication (Sub-Admin ONLY)
     if (enteredKey) {
       const matchedKeyEntry = allKeys.find(k => 
         k && 
         k.status === 'active' && 
-        k.name.trim() === enteredName &&   // Exact case-sensitive match
+        k.name.trim() === enteredName &&   // Exact match
         String(k.key).trim() === enteredKey
       );
 
-      const isMasterOverride = (enteredKey === '4545' || enteredKey === STATE.masterKey) && 
-                               (enteredName.toLowerCase().includes('kausar') || enteredName.toLowerCase().includes('master'));
-
-      if (matchedKeyEntry || isMasterOverride) {
-        // Authenticated by Master-Assigned Private Key! DIRECT UNLOCK!
+      if (matchedKeyEntry) {
+        // Authenticated by Master-Assigned Private Key! DIRECT UNLOCK as Sub-Admin!
         STATE.isAdmin = true;
-        STATE.isMasterAdmin = isMasterOverride;
-        STATE.adminRole = isMasterOverride ? 'master' : 'subadmin';
+        STATE.isMasterAdmin = false;
+        STATE.adminRole = 'subadmin';
         STATE.adminName = enteredName;
         sessionStorage.setItem('fc_is_admin', 'true');
         sessionStorage.setItem('fc_admin_name', enteredName);
-        sessionStorage.setItem('fc_admin_role', STATE.adminRole);
+        sessionStorage.setItem('fc_admin_role', 'subadmin');
 
         if (STATE.firebaseDb && STATE.deviceId) {
           STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
@@ -1499,24 +1556,22 @@ function retryAdminLogin() {
             name: enteredName,
             device: STATE.deviceName,
             status: 'approved',
-            role: STATE.adminRole,
-            isOwner: isMasterOverride,
-            usedPrivateKeyId: matchedKeyEntry ? matchedKeyEntry.id : 'master_override',
+            role: 'subadmin',
+            isOwner: false,
+            usedPrivateKeyId: matchedKeyEntry.id,
             lastSeen: Date.now()
           }).catch(() => {});
 
-          if (matchedKeyEntry) {
-            STATE.firebaseDb.ref(`security/admin_private_keys/${matchedKeyEntry.id}`).update({
-              lastUsed: Date.now(),
-              lastDevice: STATE.deviceName
-            }).catch(() => {});
-          }
+          STATE.firebaseDb.ref(`security/admin_private_keys/${matchedKeyEntry.id}`).update({
+            lastUsed: Date.now(),
+            lastDevice: STATE.deviceName
+          }).catch(() => {});
         }
 
         // Record Audit Trail
         recordAuditLog({
           adminName: enteredName,
-          role: isMasterOverride ? 'Master Admin' : 'Sub-Admin',
+          role: 'Sub-Admin',
           actionType: 'LOGIN',
           details: `Accessed Admin Portal with 4-digit Private Key (${enteredKey})`
         });
@@ -1609,8 +1664,34 @@ function retryAdminLogin() {
   }
 
   /* ==================== MASTER MIND CRYPTOGRAPHIC VERIFICATION ==================== */
-  const MASTER_SECURITY_SALT = 'KausarHayatMasterMindFineCollector_2026@SecuritySalt';
-  const MASTER_ENCRYPTED_KEY_HASH = 'd63367562b7ad2bfd37491f358c228ea173199fc4de17eaf8f18567483af5750';
+  const MASTER_SECURITY_SALT = 'FineCollector_MasterMind_Salt_2026_KausarHayat!';
+  const MASTER_DEFAULT_PIN_HASH = '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841';
+
+  async function hashKeyWithSalt(key) {
+    if (!key) return '';
+    const raw = MASTER_SECURITY_SALT + String(key).trim();
+    try {
+      if (window.crypto && window.crypto.subtle) {
+        const msgBuffer = new TextEncoder().encode(raw);
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (e) {
+      console.warn('SubtleCrypto error, falling back:', e);
+    }
+    return fallbackSha256(raw);
+  }
+
+  async function verifyMasterSecurityKey(enteredKey) {
+    if (!enteredKey) return false;
+    // 4545 can NEVER open Master Page / authenticate as Master Mind
+    if (String(enteredKey).trim() === '4545') return false;
+
+    const computedHash = await hashKeyWithSalt(enteredKey);
+    const targetHash = STATE.masterHash || MASTER_DEFAULT_PIN_HASH;
+    return computedHash === targetHash;
+  }
 
   function fallbackSha256(ascii) {
     function rightRotate(value, amount) {
@@ -1679,26 +1760,9 @@ function retryAdminLogin() {
     return result;
   }
 
-  async function verifyMasterSecurityKey(enteredKey) {
-    if (!enteredKey) return false;
-    if (enteredKey === '4545' || enteredKey === STATE.masterKey || enteredKey === STATE.adminPin) return true;
-    try {
-      const raw = MASTER_SECURITY_SALT + enteredKey;
-      if (window.crypto && window.crypto.subtle) {
-        const msgBuffer = new TextEncoder().encode(raw);
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        return hashHex === MASTER_ENCRYPTED_KEY_HASH;
-      }
-    } catch (e) {
-      console.warn('SubtleCrypto error, falling back:', e);
-    }
-    return fallbackSha256(MASTER_SECURITY_SALT + enteredKey) === MASTER_ENCRYPTED_KEY_HASH;
-  }
-
   /**
    * Direct Master Owner Login (Kausar Hayat) with Cryptographic Verification
+   * Opens Master Page exclusively upon entering the secret Master PIN!
    */
   async function handleMasterOwnerLogin() {
     const keyInput = document.getElementById('masterOwnerKeyInput');
@@ -1707,14 +1771,24 @@ function retryAdminLogin() {
 
     if (!enteredKey) {
       if (errorMsg) {
-        errorMsg.textContent = 'Please enter Master Password (4545)';
+        errorMsg.textContent = 'Please enter Master Security PIN';
         errorMsg.style.display = 'block';
       }
       if (keyInput) keyInput.focus();
       return;
     }
 
-    // Cryptographic Salted SHA-256 Verification & Master PIN match
+    // Explicit check for 4545: 4545 is strictly forbidden from opening Master Page!
+    if (enteredKey === '4545') {
+      if (errorMsg) {
+        errorMsg.textContent = 'Access Denied: 4545 is Sub-Admin only. Master Page can ONLY open with the Secret Master PIN.';
+        errorMsg.style.display = 'block';
+      }
+      if (keyInput) keyInput.focus();
+      return;
+    }
+
+    // Cryptographic Salted SHA-256 Verification against Master PIN Hash
     const isMasterAuthorized = await verifyMasterSecurityKey(enteredKey);
 
     if (isMasterAuthorized) {
@@ -1746,19 +1820,20 @@ function retryAdminLogin() {
         adminName: 'Kausar Hayat (Master Owner)',
         role: 'Master Admin',
         actionType: 'LOGIN',
-        details: 'Master Mind verified & accessed Master Portal'
+        details: 'Master Mind verified secret PIN & accessed Master Page'
       });
 
       closeAdminModal();
       updateAdminUI();
       renderAll();
-      showToast('👑 Welcome Master Mind (Kausar Hayat)! Full access unlocked.', 'success');
+      openAdminManagementModal(); // Directly opens Master Page as requested!
+      showToast('👑 Welcome Master Mind (Kausar Hayat)! Master Page opened.', 'success');
       return;
     }
 
     // Any invalid code is strictly rejected
     if (errorMsg) {
-      errorMsg.textContent = 'Invalid Master Password! Access denied.';
+      errorMsg.textContent = 'Invalid Master PIN! Access denied.';
       errorMsg.style.display = 'block';
     }
     if (keyInput) keyInput.focus();
@@ -1857,7 +1932,9 @@ function retryAdminLogin() {
 
   function openAdminManagementModal() {
     if (!STATE.isAdmin || !STATE.isMasterAdmin) {
-      showToast('Only Master Admin (Kausar Hayat) can manage admins', 'error');
+      switchLoginTab('master');
+      document.getElementById('adminModal').style.display = 'flex';
+      showToast('Master Page is locked. Please enter your secret Master PIN.', 'info');
       return;
     }
 
@@ -2314,7 +2391,7 @@ function quickRejectFromBanner() {
   }
 }
 
-function handleUpdateMasterKey() {
+async function handleUpdateMasterKey() {
   if (!STATE.isMasterAdmin) return;
 
   const currentInput = document.getElementById('inputMasterKeyCurrent');
@@ -2324,10 +2401,11 @@ function handleUpdateMasterKey() {
   const curr = currentInput ? currentInput.value.trim() : '';
   const newK = newInput ? newInput.value.trim() : '';
 
-  if (curr !== STATE.masterKey && curr !== '4545' && curr !== STATE.adminPin) {
+  const isCurrentValid = await verifyMasterSecurityKey(curr);
+  if (!isCurrentValid) {
     if (msgBox) {
       msgBox.className = 'error-msg';
-      msgBox.textContent = 'Current password is incorrect';
+      msgBox.textContent = 'Current Master PIN is incorrect';
       msgBox.style.display = 'block';
     }
     return;
@@ -2336,25 +2414,23 @@ function handleUpdateMasterKey() {
   if (newK.length < 4) {
     if (msgBox) {
       msgBox.className = 'error-msg';
-      msgBox.textContent = 'New password must be at least 4 characters long';
+      msgBox.textContent = 'New Master PIN must be at least 4 characters long';
       msgBox.style.display = 'block';
     }
     return;
   }
 
-  STATE.masterKey = newK;
-  STATE.adminPin = newK;
-  localStorage.setItem('fc_master_key', newK);
-  localStorage.setItem('fc_admin_pin', newK);
+  const newHash = await hashKeyWithSalt(newK);
+  STATE.masterHash = newHash;
+  localStorage.setItem('fc_master_hash', newHash);
 
   if (STATE.firebaseDb) {
-    STATE.firebaseDb.ref('security/master_key').set(newK);
-    STATE.firebaseDb.ref('security/master_pin').set(newK);
+    STATE.firebaseDb.ref('security/master_hash').set(newHash);
   }
 
   if (msgBox) {
     msgBox.className = 'success-msg';
-    msgBox.textContent = 'Password updated and synchronized across all devices!';
+    msgBox.textContent = 'Master PIN updated and securely hashed!';
     msgBox.style.display = 'block';
   }
 
@@ -2362,10 +2438,10 @@ function handleUpdateMasterKey() {
     adminName: 'Kausar Hayat (Master Owner)',
     role: 'Master Admin',
     actionType: 'PASSWORD_CHANGED',
-    details: 'Master Mind changed system Admin Password'
+    details: 'Master Mind changed Master Security PIN (Salted SHA-256 Hashed)'
   });
 
-  showToast('Password updated and synced everywhere', 'success');
+  showToast('Master PIN updated and securely hashed!', 'success');
   if (currentInput) currentInput.value = '';
   if (newInput) newInput.value = '';
 }
@@ -2507,7 +2583,7 @@ function closePinModal() {
   if (modal) modal.style.display = 'none';
 }
 
-function handleChangePin() {
+async function handleChangePin() {
   if (!STATE.isMasterAdmin) {
     showToast('Permission Denied: Only Master Admin can change password', 'error');
     return;
@@ -2526,10 +2602,11 @@ function handleChangePin() {
   if (errMsg) errMsg.style.display = 'none';
   if (succMsg) succMsg.style.display = 'none';
 
-  // Check Master Passkey/Password
-  if (passkey !== STATE.masterKey && passkey !== '4545' && passkey !== STATE.adminPin) {
+  // Check Master Passkey using cryptographic verification
+  const isMasterAuth = await verifyMasterSecurityKey(passkey);
+  if (!isMasterAuth) {
     if (errMsg) {
-      errMsg.textContent = 'Incorrect Master Password! Verification failed.';
+      errMsg.textContent = 'Incorrect Master PIN! Verification failed.';
       errMsg.style.display = 'block';
     }
     return;

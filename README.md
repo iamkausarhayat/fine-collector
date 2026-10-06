@@ -8,7 +8,7 @@ Fine tracking web app designed for managing late arrival records with multi-devi
 
 ### 👑 1. Master Mind (Owner - Kausar Hayat)
 - **Authority:** Kausar Hayat (Master Mind) has exclusive full authority over the system.
-- **Master Admin Password:** `4545` (Sirf Master Owner app ke andar se badal sakta hai).
+- **Master Mind Security PIN:** Cryptographic Salted SHA-256 Hashing se secure hai (Codebase aur GitHub par bilkul hidden hai, sirf Master Mind Kausar Hayat ke zehan mein mehfooz hai. 4545 se Master Page kabhi open nahi ho sakta).
 - **Master Rights:**
   - Sirf Kausar Hayat Admin Password change kar sakte hain.
   - Kisi bhi device se aane wale admin ko Master Page ke andar se **"Allow Access"** ya **"Reject"** kar sakte hain.

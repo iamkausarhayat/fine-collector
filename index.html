@@ -464,12 +464,12 @@
             </div>
 
             <div class="form-group mb-3 text-left">
-              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key"></i> Master Security Password</label>
+              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key" style="color: #fbbf24;"></i> Secret Master PIN</label>
               <div class="pin-input-wrap">
                 <input 
                   type="password" 
                   id="masterOwnerKeyInput" 
-                  placeholder="Enter Master Password" 
+                  placeholder="Enter Secret Master PIN" 
                   autocomplete="current-password"
                   onkeypress="if(event.key === 'Enter') handleMasterOwnerLogin()"
                 >
@@ -477,7 +477,7 @@
                   <i class="fa-solid fa-eye" id="masterOwnerKeyEyeIcon"></i>
                 </button>
               </div>
-              <span class="input-helper">Authorized verification for Master Mind (Kausar Hayat)</span>
+              <span class="input-helper">Master Page exclusive verification for Kausar Hayat</span>
             </div>
 
             <div id="masterLoginErrorMsg" class="error-msg" style="display: none;"></div>
