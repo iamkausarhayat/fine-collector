@@ -496,10 +496,9 @@ function loadAdminState() {
     STATE.adminPin = savedPin;
   }
 
-  // Clear any legacy plain text master key
-  if (localStorage.getItem('fc_master_key')) {
-    localStorage.removeItem('fc_master_key');
-  }
+  // Wipe any legacy plain text master key or persistent unverified master state
+  localStorage.removeItem('fc_master_key');
+  localStorage.removeItem('fc_is_master_owner');
 
   const savedMasterHash = localStorage.getItem('fc_master_hash');
   if (savedMasterHash && savedMasterHash.length === 64) {
@@ -508,7 +507,7 @@ function loadAdminState() {
     STATE.masterHash = MASTER_DEFAULT_PIN_HASH;
   }
 
-  const isMaster = localStorage.getItem('fc_is_master_owner') === 'true';
+  const isMaster = sessionStorage.getItem('fc_is_master_verified') === 'true';
   const sessionAdmin = sessionStorage.getItem('fc_is_admin') === 'true';
   const sessionRole = sessionStorage.getItem('fc_admin_role') || (isMaster ? 'master' : 'subadmin');
   const sessionName = sessionStorage.getItem('fc_admin_name') || (isMaster ? 'Kausar Hayat (Master Owner)' : 'Admin');
@@ -758,7 +757,7 @@ async function checkUrlApprovalParams() {
           if (devId === STATE.deviceId) {
             stopWaitingCountdown();
             if (isMaster) {
-              localStorage.setItem('fc_is_master_owner', 'true');
+              sessionStorage.setItem('fc_is_master_verified', 'true');
               STATE.isAdmin = true;
               STATE.isMasterAdmin = true;
               STATE.adminRole = 'master';
@@ -1485,7 +1484,7 @@ function retryAdminLogin() {
       STATE.isMasterAdmin = true;
       STATE.adminRole = 'master';
       STATE.adminName = enteredName.toLowerCase().includes('kausar') ? enteredName : 'Kausar Hayat (Master Owner)';
-      localStorage.setItem('fc_is_master_owner', 'true');
+      sessionStorage.setItem('fc_is_master_verified', 'true');
       sessionStorage.setItem('fc_is_admin', 'true');
       sessionStorage.setItem('fc_admin_name', STATE.adminName);
       sessionStorage.setItem('fc_admin_role', 'master');
@@ -1685,10 +1684,11 @@ function retryAdminLogin() {
 
   async function verifyMasterSecurityKey(enteredKey) {
     if (!enteredKey) return false;
-    // 4545 can NEVER open Master Page / authenticate as Master Mind
-    if (String(enteredKey).trim() === '4545') return false;
+    const str = String(enteredKey).trim();
+    // 4545, 9922, or adminPin can NEVER open Master Page / authenticate as Master Mind
+    if (str === '4545' || str === '9922' || str === STATE.adminPin) return false;
 
-    const computedHash = await hashKeyWithSalt(enteredKey);
+    const computedHash = await hashKeyWithSalt(str);
     const targetHash = STATE.masterHash || MASTER_DEFAULT_PIN_HASH;
     return computedHash === targetHash;
   }
@@ -1798,7 +1798,7 @@ function retryAdminLogin() {
       STATE.isMasterAdmin = true;
       STATE.adminRole = 'master';
       STATE.adminName = 'Kausar Hayat (Master Owner)';
-      localStorage.setItem('fc_is_master_owner', 'true');
+      sessionStorage.setItem('fc_is_master_verified', 'true');
       sessionStorage.setItem('fc_is_admin', 'true');
       sessionStorage.setItem('fc_admin_name', 'Kausar Hayat (Master Owner)');
       sessionStorage.setItem('fc_admin_role', 'master');
@@ -1869,7 +1869,7 @@ function retryAdminLogin() {
         STATE.isMasterAdmin = !!currentDev.isOwner;
         STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
         if (currentDev.isOwner) {
-          localStorage.setItem('fc_is_master_owner', 'true');
+          sessionStorage.setItem('fc_is_master_verified', 'true');
         }
         sessionStorage.setItem('fc_is_admin', 'true');
         sessionStorage.setItem('fc_admin_role', STATE.adminRole);
@@ -2474,6 +2474,8 @@ function logoutAdmin() {
   sessionStorage.removeItem('fc_is_admin');
   sessionStorage.removeItem('fc_admin_role');
   sessionStorage.removeItem('fc_admin_name');
+  sessionStorage.removeItem('fc_is_master_verified');
+  localStorage.removeItem('fc_is_master_owner');
   updateAdminUI();
   renderAll();
   showToast('Logged out of Admin mode', 'info');
