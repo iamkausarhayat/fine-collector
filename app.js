@@ -2891,11 +2891,13 @@ function escapeHtml(text) {
     .replace(/'/g, '&#039;');
 }
 
-function showToast(message, type = 'info') {
+function showToast(message, type = 'info', duration = 3000) {
   const container = document.getElementById('toastContainer');
   if (!container) return;
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
+  toast.style.cursor = 'pointer';
+  toast.title = 'Click to dismiss';
 
   let icon = 'fa-circle-info';
   if (type === 'success') icon = 'fa-circle-check';
@@ -2906,14 +2908,22 @@ function showToast(message, type = 'info') {
     <span>${message}</span>
   `;
 
-  container.appendChild(toast);
-
-  setTimeout(() => {
+  // Click to dismiss immediately
+  const dismissToast = () => {
     toast.style.opacity = '0';
     toast.style.transform = 'translateY(10px)';
-    toast.style.transition = 'all 0.3s ease';
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+    toast.style.transition = 'all 0.25s ease';
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 250);
+  };
+  toast.onclick = dismissToast;
+
+  container.appendChild(toast);
+
+  // Auto-dismiss after specified duration (default 3 seconds)
+  const displayTime = Math.max(1000, Number(duration) || 3000);
+  setTimeout(dismissToast, displayTime);
 }
 
 // ==================== READ-ONLY IMMUTABLE BINDINGS & TAMPER SHIELD ====================
