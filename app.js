@@ -220,8 +220,8 @@ function sendTestSecurityEmail() {
  */
 function recordAuditLog({ actionType, details, adminName, role, studentId, studentName, metadata = {} }) {
   try {
-    const currentName = adminName || STATE.adminName || (STATE.isMasterAdmin ? 'Kausar Hayat (Master Owner)' : (sessionStorage.getItem('fc_admin_name') || 'Admin'));
-    const currentRole = role || (STATE.isMasterAdmin ? 'Master Admin' : (STATE.adminRole === 'master' ? 'Master Admin' : 'Sub-Admin'));
+    const currentName = adminName || STATE.adminName || (STATE.isMasterAdmin ? 'Kausar Hayat (Master Owner)' : 'Admin');
+    const currentRole = role || (STATE.isMasterAdmin ? 'Master Admin' : (STATE.adminRole === 'master' ? 'Master Admin' : (STATE.adminRole === 'subadmin' ? 'Sub-Admin' : 'Guest')));
     const logId = 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 5);
     
     const now = new Date();
@@ -494,21 +494,14 @@ let _hasAttachedPrivateKeysListener = false;
 function setMasterSessionVerified() {
   _masterSessionToken = 'master_sig_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
   try {
-    sessionStorage.setItem('fc_session_auth_sig', _masterSessionToken);
-    sessionStorage.setItem('fc_is_master_verified', 'true');
+    sessionStorage.clear();
+    localStorage.removeItem('fc_is_master_owner');
+    localStorage.removeItem('fc_master_key');
   } catch (e) {}
 }
 
 function isMasterSessionVerified() {
-  if (!_masterSessionToken) {
-    try {
-      const stored = sessionStorage.getItem('fc_session_auth_sig');
-      if (stored && stored.startsWith('master_sig_')) {
-        _masterSessionToken = stored;
-      }
-    } catch (e) {}
-  }
-  return !!_masterSessionToken && STATE.isMasterAdmin === true;
+  return !!_masterSessionToken && STATE.isAdmin === true && STATE.isMasterAdmin === true && STATE.adminRole === 'master';
 }
 
 function checkMasterLockout() {
@@ -551,10 +544,8 @@ function guardMasterRights(actionName = 'this operation') {
 
 function isAuthorizedAdminSession() {
   const hasMasterSig = isMasterSessionVerified();
-  const hasFirebaseUser = !!(STATE.firebaseUser || (_internalFirebase && _internalFirebase.auth && _internalFirebase.auth().currentUser));
-  const hasSubAdminToken = !!sessionStorage.getItem('fc_admin_auth_token') && STATE.isAdmin;
-  const isApprovedSession = STATE.isAdmin && (STATE.adminRole === 'master' || STATE.adminRole === 'subadmin');
-  return (hasMasterSig || hasFirebaseUser || hasSubAdminToken || isApprovedSession);
+  const isApprovedSession = STATE.isAdmin === true && (STATE.adminRole === 'master' || STATE.adminRole === 'subadmin');
+  return (hasMasterSig || isApprovedSession);
 }
 
 function guardAdminRights(actionName = 'this operation') {
@@ -591,32 +582,32 @@ function attachMasterPrivateKeysListener() {
 /* ==================== ADMIN STATE ==================== */
 
 function loadAdminState() {
+  // Always boot in secure guest mode so no local browser storage can be hijacked
+  STATE.isAdmin = false;
+  STATE.isMasterAdmin = false;
+  STATE.adminRole = 'guest';
+  STATE.adminName = '';
+  _masterSessionToken = null;
+
+  // Clear any lingering session keys from Chrome storage
+  try {
+    sessionStorage.clear();
+    localStorage.removeItem('fc_is_master_owner');
+    localStorage.removeItem('fc_master_key');
+    localStorage.removeItem('fc_admin_private_keys');
+  } catch (e) {}
+
   const savedPin = localStorage.getItem('fc_admin_pin');
   if (savedPin) {
     STATE.adminPin = savedPin;
   }
-
-  // Wipe legacy plain text master key or unverified master state
-  localStorage.removeItem('fc_master_key');
-  localStorage.removeItem('fc_is_master_owner');
 
   const savedMasterHash = localStorage.getItem('fc_master_hash');
   if (savedMasterHash && savedMasterHash.length === 64) {
     STATE.masterHash = savedMasterHash;
   }
 
-  const isMaster = isMasterSessionVerified();
-  const sessionAdmin = sessionStorage.getItem('fc_is_admin') === 'true';
-  const sessionRole = sessionStorage.getItem('fc_admin_role') || (isMaster ? 'master' : 'subadmin');
-  const sessionName = sessionStorage.getItem('fc_admin_name') || (isMaster ? 'Kausar Hayat (Master Owner)' : 'Admin');
-
-  if (sessionAdmin) {
-    STATE.isAdmin = true;
-    STATE.isMasterAdmin = isMaster;
-    STATE.adminRole = isMaster ? 'master' : 'subadmin';
-    STATE.adminName = sessionName;
-    updateAdminUI();
-  }
+  updateAdminUI();
 
   // Load audit logs from local storage fallback
   try {
@@ -863,12 +854,11 @@ async function checkUrlApprovalParams() {
           if (devId === STATE.deviceId) {
             stopWaitingCountdown();
             if (isMaster) {
-              sessionStorage.setItem('fc_is_master_verified', 'true');
+              setMasterSessionVerified();
               STATE.isAdmin = true;
               STATE.isMasterAdmin = true;
               STATE.adminRole = 'master';
-              sessionStorage.setItem('fc_is_admin', 'true');
-              sessionStorage.setItem('fc_admin_role', 'master');
+              STATE.adminName = 'Kausar Hayat (Master Owner)';
               closeAdminModal();
               updateAdminUI();
               renderAll();
@@ -876,8 +866,6 @@ async function checkUrlApprovalParams() {
               STATE.isAdmin = true;
               STATE.isMasterAdmin = false;
               STATE.adminRole = 'subadmin';
-              sessionStorage.setItem('fc_is_admin', 'true');
-              sessionStorage.setItem('fc_admin_role', 'subadmin');
               closeAdminModal();
               updateAdminUI();
               renderAll();
@@ -1613,9 +1601,6 @@ function retryAdminLogin() {
       STATE.adminRole = 'master';
       STATE.adminName = enteredName.toLowerCase().includes('kausar') ? enteredName : 'Kausar Hayat (Master Owner)';
       setMasterSessionVerified();
-      sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_name', STATE.adminName);
-      sessionStorage.setItem('fc_admin_role', 'master');
 
       if (STATE.isCloudConnected && STATE.firestoreDb && STATE.deviceId) {
         STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
@@ -1673,9 +1658,6 @@ function retryAdminLogin() {
         STATE.isMasterAdmin = false;
         STATE.adminRole = 'subadmin';
         STATE.adminName = enteredName;
-        sessionStorage.setItem('fc_is_admin', 'true');
-        sessionStorage.setItem('fc_admin_name', enteredName);
-        sessionStorage.setItem('fc_admin_role', 'subadmin');
 
         if (STATE.isCloudConnected && STATE.firestoreDb && STATE.deviceId) {
           STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
@@ -1982,9 +1964,6 @@ function retryAdminLogin() {
       STATE.adminRole = 'master';
       STATE.adminName = 'Kausar Hayat (Master Owner)';
       setMasterSessionVerified();
-      sessionStorage.setItem('fc_is_admin', 'true');
-      sessionStorage.setItem('fc_admin_name', 'Kausar Hayat (Master Owner)');
-      sessionStorage.setItem('fc_admin_role', 'master');
 
       if (STATE.isCloudConnected && STATE.firestoreDb && STATE.deviceId) {
         STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
@@ -2056,10 +2035,8 @@ function retryAdminLogin() {
         STATE.isMasterAdmin = !!currentDev.isOwner;
         STATE.adminRole = currentDev.isOwner ? 'master' : 'subadmin';
         if (currentDev.isOwner) {
-          sessionStorage.setItem('fc_is_master_verified', 'true');
+          setMasterSessionVerified();
         }
-        sessionStorage.setItem('fc_is_admin', 'true');
-        sessionStorage.setItem('fc_admin_role', STATE.adminRole);
         STATE.pendingLogin = false;
         closeAdminModal();
         updateAdminUI();
@@ -2626,11 +2603,7 @@ function logoutAdmin() {
   _masterSessionToken = null;
   _hasAttachedPrivateKeysListener = false;
   try {
-    sessionStorage.removeItem('fc_session_auth_sig');
-    sessionStorage.removeItem('fc_is_master_verified');
-    sessionStorage.removeItem('fc_is_admin');
-    sessionStorage.removeItem('fc_admin_name');
-    sessionStorage.removeItem('fc_admin_role');
+    sessionStorage.clear();
     localStorage.removeItem('fc_is_master_owner');
     localStorage.removeItem('fc_admin_private_keys');
   } catch (e) {}
@@ -3079,6 +3052,18 @@ document.addEventListener('keydown', (e) => {
       return false;
     }
   }
+});
+
+// Clean browser storage on page close or navigation to prevent session persistence
+window.addEventListener('beforeunload', () => {
+  try {
+    sessionStorage.clear();
+  } catch (e) {}
+});
+window.addEventListener('pagehide', () => {
+  try {
+    sessionStorage.clear();
+  } catch (e) {}
 });
 
 
