@@ -5,7 +5,7 @@
  */
 
 // Global Configuration
-const DEFAULT_FIREBASE_PROJECT_ID = "fine-collector-default-rtdb";
+const DEFAULT_FIREBASE_PROJECT_ID = "fine-collector";
 
 // Application State
 const STATE = {
@@ -627,7 +627,12 @@ function loadAdminState() {
 /* ==================== STORAGE & REALTIME CLOUD ==================== */
 
 function initCloudOrLocalStorage() {
-  const savedProjectId = localStorage.getItem('fc_firebase_project_id') || DEFAULT_FIREBASE_PROJECT_ID;
+  let savedProjectId = localStorage.getItem('fc_firebase_project_id');
+  // Auto-migrate from legacy RTDB URL / project ID to the actual Firestore project fine-collector
+  if (!savedProjectId || savedProjectId.includes('rtdb') || savedProjectId === 'fine-collector-default-rtdb' || savedProjectId === 'fine-collector-app') {
+    savedProjectId = DEFAULT_FIREBASE_PROJECT_ID;
+    localStorage.setItem('fc_firebase_project_id', DEFAULT_FIREBASE_PROJECT_ID);
+  }
   const savedConfigJson = localStorage.getItem('fc_firebase_config');
 
   if (window.firebase && window.firebase.firestore) {
