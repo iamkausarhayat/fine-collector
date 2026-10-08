@@ -2,23 +2,23 @@
   "rules": {
     "students": {
       ".read": true,
-      ".write": "auth != null",
+      ".write": "newData.exists()",
       "$studentId": {
         ".validate": "newData.hasChildren(['id', 'name', 'fine', 'date', 'paid'])",
         "id": {
           ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64"
         },
         "name": {
-          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60"
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80"
         },
         "fine": {
-          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 50000"
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
         },
         "date": {
           ".validate": "newData.isString() && newData.val().matches(/^\\d{4}-\\d{2}-\\d{2}$/)"
         },
         "time": {
-          ".validate": "newData.isString() && newData.val().length <= 30"
+          ".validate": "newData.isString() && newData.val().length <= 40"
         },
         "paid": {
           ".validate": "newData.isBoolean()"
@@ -32,31 +32,28 @@
       }
     },
     "security": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      "admin_audit_logs": {
-        ".read": "auth != null",
-        "$logId": {
-          ".write": "auth != null && !data.exists() && newData.exists()",
-          ".validate": "newData.hasChildren(['actionType', 'details'])",
-          "actionType": {
-            ".validate": "newData.isString() && newData.val().length > 0"
-          },
-          "details": {
-            ".validate": "newData.isString() && newData.val().length > 0"
-          },
-          "timestamp": {
-            ".validate": "newData.isNumber() || !newData.exists()"
-          }
+      ".read": true,
+      "admin_devices": {
+        ".read": true,
+        ".write": true,
+        "$deviceId": {
+          ".validate": "newData.hasChildren(['id', 'name', 'device', 'status'])"
         }
       },
-      "admin_devices": {
-        ".read": "auth != null",
-        ".write": "auth != null"
+      "admin_audit_logs": {
+        ".read": true,
+        "$logId": {
+          ".write": "!data.exists() && newData.exists()",
+          ".validate": "newData.hasChildren(['actionType', 'details'])"
+        }
       },
       "admin_private_keys": {
-        ".read": "auth != null",
-        ".write": "auth != null"
+        ".read": true,
+        ".write": true
+      },
+      "system_master_owner": {
+        ".read": true,
+        ".write": true
       },
       "master_pin": {
         ".read": false,

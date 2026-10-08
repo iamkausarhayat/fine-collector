@@ -549,7 +549,8 @@ function isAuthorizedAdminSession() {
   const hasMasterSig = isMasterSessionVerified();
   const hasFirebaseUser = !!(STATE.firebaseUser || (window.firebase && firebase.auth && firebase.auth().currentUser));
   const hasSubAdminToken = !!sessionStorage.getItem('fc_admin_auth_token') && STATE.isAdmin;
-  return (hasMasterSig || hasFirebaseUser || hasSubAdminToken);
+  const isApprovedSession = STATE.isAdmin && (STATE.adminRole === 'master' || STATE.adminRole === 'subadmin');
+  return (hasMasterSig || hasFirebaseUser || hasSubAdminToken || isApprovedSession);
 }
 
 function guardAdminRights(actionName = 'this operation') {
@@ -1730,10 +1731,34 @@ function retryAdminLogin() {
     startWaitingCountdown();
   }
 
-  /* ==================== SERVER-SIDE FIREBASE AUTHENTICATION ==================== */
+  /* ==================== MASTER OWNER AUTHENTICATION & HASH VALIDATION ==================== */
+  const MASTER_SECURITY_SALT = 'FineCollector_MasterMind_Salt_2026_KausarHayat!';
+  const MASTER_VALID_HASHES = new Set([
+    '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841', // 1255
+    'ad0673e91390c0632580e2d22fa8a8c5631b95b5673203ccbd004082752243f4'  // 1256
+  ]);
+
+  async function hashKeyWithSalt(key) {
+    if (!key) return '';
+    const raw = MASTER_SECURITY_SALT + String(key).trim();
+    try {
+      if (window.crypto && window.crypto.subtle) {
+        const msgBuffer = new TextEncoder().encode(raw);
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (e) {
+      console.warn('SubtleCrypto error, falling back:', e);
+    }
+    return fallbackSha256(raw);
+  }
 
   async function verifyMasterSecurityKey(enteredKey, enteredEmail = 'iamkausarhayat100@gmail.com') {
     if (!enteredKey) return false;
+    const str = String(enteredKey).trim();
+    if (str === '4545') return false; // 4545 is Sub-Admin password only
+
     const lockoutSec = checkMasterLockout();
     if (lockoutSec > 0) {
       showToast(`Lockout Active: Please wait ${lockoutSec}s before retrying.`, 'error');
@@ -1741,12 +1766,27 @@ function retryAdminLogin() {
     }
 
     // Artificial throttling against automated brute-force attempts
-    await new Promise(r => setTimeout(r, 600));
+    await new Promise(r => setTimeout(r, 400));
 
-    // 1. Primary: Server-side Firebase Authentication verification
+    // 1. Direct Master PIN match (1255 or 1256)
+    if (str === '1255' || str === '1256') {
+      resetMasterFailedAttempts();
+      setMasterSessionVerified();
+      return true;
+    }
+
+    // 2. Cryptographic Salted Hash match
+    const computedHash = await hashKeyWithSalt(str);
+    if (MASTER_VALID_HASHES.has(computedHash) || (STATE.masterHash && computedHash === STATE.masterHash)) {
+      resetMasterFailedAttempts();
+      setMasterSessionVerified();
+      return true;
+    }
+
+    // 3. Primary Server-side Firebase Auth (if project has Auth configured)
     if (window.firebase && firebase.auth) {
       try {
-        const userCredential = await firebase.auth().signInWithEmailAndPassword(enteredEmail, enteredKey);
+        const userCredential = await firebase.auth().signInWithEmailAndPassword(enteredEmail, str);
         if (userCredential && userCredential.user) {
           resetMasterFailedAttempts();
           setMasterSessionVerified();
@@ -1754,26 +1794,8 @@ function retryAdminLogin() {
           return true;
         }
       } catch (authErr) {
-        console.warn("Firebase Auth server response:", authErr.code);
-        if (authErr.code === 'auth/too-many-requests') {
-          showToast('Security Alert: Multiple failed attempts. Account temporarily locked.', 'error');
-          return false;
-        }
+        // Fallback silently if Firebase Auth is unconfigured on client
       }
-    }
-
-    // 2. Secondary fallback verification (if offline or cloud sync mode)
-    if (STATE.masterHash && enteredKey && window.crypto && window.crypto.subtle) {
-      try {
-        const msgBuffer = new TextEncoder().encode(enteredKey.trim());
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
-        const computedHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-        if (computedHex === STATE.masterHash) {
-          resetMasterFailedAttempts();
-          setMasterSessionVerified();
-          return true;
-        }
-      } catch (e) {}
     }
 
     recordMasterFailedAttempt();
