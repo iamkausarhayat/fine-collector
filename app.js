@@ -722,6 +722,23 @@ function initCloudOrLocalStorage() {
         console.warn('Firestore audit logs listener error:', err);
       });
 
+      // 5. Realtime listener for System Security & Dynamic PIN synchronization
+      STATE.firestoreDb.collection('system_security').doc('config').onSnapshot((doc) => {
+        if (doc.exists) {
+          const data = doc.data();
+          if (data && data.masterHash) {
+            STATE.masterHash = data.masterHash;
+            localStorage.setItem('fc_master_hash', data.masterHash);
+          }
+          if (data && data.adminPin) {
+            STATE.adminPin = data.adminPin;
+            localStorage.setItem('fc_admin_pin', data.adminPin);
+          }
+        }
+      }, (err) => {
+        console.warn('Firestore system_security sync error:', err);
+      });
+
       // If current device is Master Owner, ensure presence in Firestore
       if (STATE.isMasterAdmin && STATE.deviceId) {
         STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
@@ -1776,6 +1793,7 @@ function retryAdminLogin() {
   /* ==================== MASTER OWNER AUTHENTICATION & HASH VALIDATION ==================== */
   const MASTER_SECURITY_SALT = 'FineCollector_MasterMind_Salt_2026_KausarHayat!';
   const MASTER_VALID_HASHES = new Set([
+    '2e6297039248aa888350e2e1e045d9ba7d02367b7f5e78ad6288450299519133', // 1238
     '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841', // 1255
     'ad0673e91390c0632580e2d22fa8a8c5631b95b5673203ccbd004082752243f4'  // 1256
   ]);
@@ -1810,8 +1828,8 @@ function retryAdminLogin() {
     // Artificial throttling against automated brute-force attempts
     await new Promise(r => setTimeout(r, 400));
 
-    // 1. Direct Master PIN match (1255 or 1256)
-    if (str === '1255' || str === '1256') {
+    // 1. Direct Master PIN match (1238, 1255, 1256)
+    if (str === '1238' || str === '1255' || str === '1256') {
       resetMasterFailedAttempts();
       setMasterSessionVerified();
       return true;
@@ -2579,7 +2597,11 @@ async function handleUpdateMasterKey() {
   localStorage.setItem('fc_master_hash', newHash);
 
   if (STATE.isCloudConnected && STATE.firestoreDb) {
-    STATE.firestoreDb.collection('system_security').doc('config').set({ masterHash: newHash }, { merge: true }).catch(() => {});
+    STATE.firestoreDb.collection('system_security').doc('config').set({ 
+      masterHash: newHash,
+      updatedAt: Date.now(),
+      updatedBy: 'Master Admin'
+    }, { merge: true }).catch(() => {});
   }
 
   if (msgBox) {
@@ -2803,10 +2825,14 @@ async function handleChangePin() {
 
   // Sync centrally to Firestore for all connected devices
   if (STATE.isCloudConnected && STATE.firestoreDb) {
-    STATE.firestoreDb.collection('system_security').doc('config').set({ adminPin: newPin }, { merge: true })
+    STATE.firestoreDb.collection('system_security').doc('config').set({ 
+      adminPin: newPin,
+      updatedAt: Date.now(),
+      updatedBy: 'Master Admin'
+    }, { merge: true })
       .then(() => {
         if (succMsg) {
-          succMsg.textContent = 'Password updated and synchronized across all devices!';
+          succMsg.textContent = 'Password updated and synchronized across all devices in Firestore!';
           succMsg.style.display = 'block';
         }
       }).catch(() => {});
