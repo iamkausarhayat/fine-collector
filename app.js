@@ -15,8 +15,6 @@ const STATE = {
   isMasterAdmin: false,  // True only for owner (Kausar Hayat)
   adminRole: 'guest',    // 'master' | 'subadmin' | 'guest'
   adminName: '',         // Name of current logged-in admin (e.g. 'Ali Khan')
-  adminPin: '4545',      // Central Sub-Admin Password
-  masterHash: 'ad0673e91390c0632580e2d22fa8a8c5631b95b5673203ccbd004082752243f4', // Dynamic Cloud Master Hash
   deviceId: '',
   deviceName: '',
   adminDevices: {},
@@ -1515,7 +1513,7 @@ function retryAdminLogin() {
 
     if (!enteredPin) {
       if (errorMsg) {
-        errorMsg.textContent = 'Please enter Admin Password (4545)';
+        errorMsg.textContent = 'Please enter Sub-Admin Password';
         errorMsg.style.display = 'block';
       }
       if (pinInput) pinInput.focus();
@@ -1711,27 +1709,9 @@ function retryAdminLogin() {
     startWaitingCountdown();
   }
 
-  /* ==================== MASTER MIND CRYPTOGRAPHIC VERIFICATION ==================== */
-  const MASTER_SECURITY_SALT = 'FineCollector_MasterMind_Salt_2026_KausarHayat!';
-  const MASTER_DEFAULT_PIN_HASH = '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841';
+  /* ==================== SERVER-SIDE FIREBASE AUTHENTICATION ==================== */
 
-  async function hashKeyWithSalt(key) {
-    if (!key) return '';
-    const raw = MASTER_SECURITY_SALT + String(key).trim();
-    try {
-      if (window.crypto && window.crypto.subtle) {
-        const msgBuffer = new TextEncoder().encode(raw);
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-      }
-    } catch (e) {
-      console.warn('SubtleCrypto error, falling back:', e);
-    }
-    return fallbackSha256(raw);
-  }
-
-  async function verifyMasterSecurityKey(enteredKey) {
+  async function verifyMasterSecurityKey(enteredKey, enteredEmail = 'iamkausarhayat100@gmail.com') {
     if (!enteredKey) return false;
     const lockoutSec = checkMasterLockout();
     if (lockoutSec > 0) {
@@ -1739,27 +1719,44 @@ function retryAdminLogin() {
       return false;
     }
 
-    const str = String(enteredKey).trim();
-    // 4545, 9922, or adminPin can NEVER open Master Page / authenticate as Master Mind
-    if (str === '4545' || str === '9922' || str === STATE.adminPin) return false;
-
     // Artificial throttling against automated brute-force attempts
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 600));
 
-    const computedHash = await hashKeyWithSalt(str);
-    const targetHash = STATE.masterHash || 'ad0673e91390c0632580e2d22fa8a8c5631b95b5673203ccbd004082752243f4';
-    
-    // Check against cloud target hash or fallback master pin hash
-    const isValid = (computedHash === targetHash) || (computedHash === '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841');
-
-    if (isValid) {
-      resetMasterFailedAttempts();
-      setMasterSessionVerified();
-    } else {
-      recordMasterFailedAttempt();
+    // 1. Primary: Server-side Firebase Authentication verification
+    if (window.firebase && firebase.auth) {
+      try {
+        const userCredential = await firebase.auth().signInWithEmailAndPassword(enteredEmail, enteredKey);
+        if (userCredential && userCredential.user) {
+          resetMasterFailedAttempts();
+          setMasterSessionVerified();
+          STATE.firebaseUser = userCredential.user;
+          return true;
+        }
+      } catch (authErr) {
+        console.warn("Firebase Auth server response:", authErr.code);
+        if (authErr.code === 'auth/too-many-requests') {
+          showToast('Security Alert: Multiple failed attempts. Account temporarily locked.', 'error');
+          return false;
+        }
+      }
     }
 
-    return isValid;
+    // 2. Secondary fallback verification (if offline or cloud sync mode)
+    if (STATE.masterHash && enteredKey && window.crypto && window.crypto.subtle) {
+      try {
+        const msgBuffer = new TextEncoder().encode(enteredKey.trim());
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+        const computedHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        if (computedHex === STATE.masterHash) {
+          resetMasterFailedAttempts();
+          setMasterSessionVerified();
+          return true;
+        }
+      } catch (e) {}
+    }
+
+    recordMasterFailedAttempt();
+    return false;
   }
 
   function fallbackSha256(ascii) {
@@ -1869,7 +1866,9 @@ function retryAdminLogin() {
       return;
     }
 
-    const isMasterAuthorized = await verifyMasterSecurityKey(enteredKey);
+    const emailInput = document.getElementById('masterOwnerEmailInput');
+    const enteredEmail = emailInput ? emailInput.value.trim() : 'iamkausarhayat100@gmail.com';
+    const isMasterAuthorized = await verifyMasterSecurityKey(enteredKey, enteredEmail);
 
     if (isMasterAuthorized) {
       if (errorMsg) errorMsg.style.display = 'none';
@@ -2559,6 +2558,11 @@ function logoutAdmin() {
     actionType: 'LOGOUT',
     details: 'Logged out of Admin Portal'
   });
+
+  // Terminate Firebase Auth session
+  if (window.firebase && firebase.auth) {
+    try { firebase.auth().signOut().catch(() => {}); } catch (e) {}
+  }
 
   // Mark device as logged_out in Firebase so session is terminated
   if (STATE.firebaseDb && STATE.deviceId) {

@@ -317,13 +317,13 @@
           </div>
 
           <div class="form-group mb-3">
-            <label for="adminPinInput"><i class="fa-solid fa-lock"></i> Admin Password / PIN</label>
+            <label for="adminPinInput"><i class="fa-solid fa-lock"></i> Sub-Admin Password</label>
             <div class="pin-input-wrap">
               <input 
                 type="password" 
                 id="adminPinInput" 
                 maxlength="30" 
-                placeholder="Enter Admin Password (4545)" 
+                placeholder="Enter Sub-Admin Password" 
                 autocomplete="off"
                 onkeypress="if(event.key === 'Enter') handleAdminLogin()"
               >
@@ -441,17 +441,17 @@
             <p>Direct login for System Owner (Kausar Hayat). Protected by high-iteration cryptographic key stretching & rate limiting.</p>
             
             <div class="form-group mb-3 text-left">
-              <label><i class="fa-solid fa-crown"></i> Master Mind System Owner</label>
-              <input type="text" id="masterOwnerEmailInput" value="Kausar Hayat (System Owner)" readonly class="input-readonly">
+              <label><i class="fa-solid fa-crown"></i> Master Mind Admin Email</label>
+              <input type="email" id="masterOwnerEmailInput" value="iamkausarhayat100@gmail.com" placeholder="admin@example.com">
             </div>
 
             <div class="form-group mb-3 text-left">
-              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key" style="color: #fbbf24;"></i> Secret Master Passkey / PIN</label>
+              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key" style="color: #fbbf24;"></i> Secret Master Password</label>
               <div class="pin-input-wrap">
                 <input 
                   type="password" 
                   id="masterOwnerKeyInput" 
-                  placeholder="Enter Secret Master Passkey" 
+                  placeholder="Enter Secret Master Password" 
                   autocomplete="current-password"
                   onkeypress="if(event.key === 'Enter') handleMasterOwnerLogin()"
                 >
@@ -459,7 +459,7 @@
                   <i class="fa-solid fa-eye" id="masterOwnerKeyEyeIcon"></i>
                 </button>
               </div>
-              <span class="input-helper">Master Page exclusive verification for Kausar Hayat</span>
+              <span class="input-helper">Server-side authenticated via Google Firebase</span>
             </div>
 
             <div id="masterLoginErrorMsg" class="error-msg" style="display: none;"></div>

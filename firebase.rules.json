@@ -2,30 +2,67 @@
   "rules": {
     "students": {
       ".read": true,
-      ".write": true
+      ".write": "auth != null",
+      "$studentId": {
+        ".validate": "newData.hasChildren(['id', 'name', 'fine', 'date', 'paid'])",
+        "id": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64"
+        },
+        "name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60"
+        },
+        "fine": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 50000"
+        },
+        "date": {
+          ".validate": "newData.isString() && newData.val().matches(/^\\d{4}-\\d{2}-\\d{2}$/)"
+        },
+        "time": {
+          ".validate": "newData.isString() && newData.val().length <= 30"
+        },
+        "paid": {
+          ".validate": "newData.isBoolean()"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() || !newData.exists()"
+        },
+        "$other": {
+          ".validate": true
+        }
+      }
     },
     "security": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "admin_audit_logs": {
+        ".read": "auth != null",
+        "$logId": {
+          ".write": "auth != null && !data.exists() && newData.exists()",
+          ".validate": "newData.hasChildren(['actionType', 'details'])",
+          "actionType": {
+            ".validate": "newData.isString() && newData.val().length > 0"
+          },
+          "details": {
+            ".validate": "newData.isString() && newData.val().length > 0"
+          },
+          "timestamp": {
+            ".validate": "newData.isNumber() || !newData.exists()"
+          }
+        }
+      },
       "admin_devices": {
-        ".read": true,
-        ".write": true
+        ".read": "auth != null",
+        ".write": "auth != null"
       },
       "admin_private_keys": {
-        ".read": true,
-        ".write": true
-      },
-      "admin_audit_logs": {
-        ".read": true,
-        ".write": true
-      },
-      "system_master_owner": {
-        ".read": true,
-        ".write": true
-      },
-      "master_hash": {
-        ".read": true,
-        ".write": true
+        ".read": "auth != null",
+        ".write": "auth != null"
       },
       "master_pin": {
+        ".read": false,
+        ".write": false
+      },
+      "master_hash": {
         ".read": false,
         ".write": false
       }
