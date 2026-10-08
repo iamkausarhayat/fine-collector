@@ -545,12 +545,27 @@ function guardMasterRights(actionName = 'this operation') {
   return true;
 }
 
+function isAuthorizedAdminSession() {
+  const hasMasterSig = isMasterSessionVerified();
+  const hasFirebaseUser = !!(STATE.firebaseUser || (window.firebase && firebase.auth && firebase.auth().currentUser));
+  const hasSubAdminToken = !!sessionStorage.getItem('fc_admin_auth_token') && STATE.isAdmin;
+  return (hasMasterSig || hasFirebaseUser || hasSubAdminToken);
+}
+
 function guardAdminRights(actionName = 'this operation') {
-  if (!STATE.isAdmin) {
-    showToast(`Access Denied: Admin authorization required for ${actionName}.`, 'error');
+  if (!isAuthorizedAdminSession()) {
+    showToast(`Access Denied: Read-Only Mode. Modifications and deletions are strictly blocked.`, 'error');
     return false;
   }
   return true;
+}
+
+function freezeStudentsIfReadOnly() {
+  if (!isAuthorizedAdminSession() && Array.isArray(STATE.students)) {
+    try {
+      Object.freeze(STATE.students);
+    } catch (e) {}
+  }
 }
 
 function attachMasterPrivateKeysListener() {
@@ -943,6 +958,10 @@ function retryAdminLogin() {
   }
 
   function saveState() {
+    if (!isAuthorizedAdminSession()) {
+      console.warn("Blocked unauthorized saveState: Read-Only Mode enforced.");
+      return;
+    }
     const cleanList = (STATE.students || []).filter(Boolean);
     if (STATE.isCloudConnected && STATE.firebaseDb) {
       STATE.firebaseDb.ref('students').set(cleanList)
@@ -1057,6 +1076,8 @@ function retryAdminLogin() {
     if (filteredCountBadge) {
       filteredCountBadge.textContent = `Showing ${list.length} record${list.length === 1 ? '' : 's'}`;
     }
+
+    freezeStudentsIfReadOnly();
 
     tbody.innerHTML = '';
 
