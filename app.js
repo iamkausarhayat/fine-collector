@@ -16,11 +16,11 @@ const STATE = {
   adminRole: 'guest',    // 'master' | 'subadmin' | 'guest'
   adminName: '',         // Name of current logged-in admin (e.g. 'Ali Khan')
   adminPin: '4545',      // Central Sub-Admin Password
-  masterHash: '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841', // Salted SHA-256 Hash of Secret Master PIN (Hidden)
+  masterHash: 'ad0673e91390c0632580e2d22fa8a8c5631b95b5673203ccbd004082752243f4', // Dynamic Cloud Master Hash
   deviceId: '',
   deviceName: '',
   adminDevices: {},
-  adminPrivateKeys: {},  // Master-generated 4-digit keys for authorized admins
+  adminPrivateKeys: {},  // Loaded on-demand for verified Master Mind only
   isMasterMindClaimed: true, // Single Master Mind permanent authority (Kausar Hayat)
   pendingLogin: false,
   pendingDeviceIdToApprove: null,
@@ -440,10 +440,7 @@ function renderAuditLogsList() {
  * Clears all Audit Logs (Master Mind Only)
  */
 function clearAuditLogs() {
-  if (!STATE.isMasterAdmin) {
-    showToast('Permission Denied: Only Master Mind can clear audit logs', 'error');
-    return;
-  }
+  if (!guardMasterRights('clearing audit logs')) return;
 
   if (confirm('Are you sure you want to clear all Audit Logs? This will wipe the activity history.')) {
     STATE.auditLogs = [];
@@ -488,6 +485,86 @@ function prefillAssignPrivateKey(adminName) {
   }, 50);
 }
 
+/* ==================== CRYPTOGRAPHIC SESSION & SECURITY GUARDS ==================== */
+let _masterSessionToken = null;
+let _hasAttachedPrivateKeysListener = false;
+
+function setMasterSessionVerified() {
+  _masterSessionToken = 'master_sig_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+  try {
+    sessionStorage.setItem('fc_session_auth_sig', _masterSessionToken);
+    sessionStorage.setItem('fc_is_master_verified', 'true');
+  } catch (e) {}
+}
+
+function isMasterSessionVerified() {
+  if (!_masterSessionToken) {
+    try {
+      const stored = sessionStorage.getItem('fc_session_auth_sig');
+      if (stored && stored.startsWith('master_sig_')) {
+        _masterSessionToken = stored;
+      }
+    } catch (e) {}
+  }
+  return !!_masterSessionToken && STATE.isMasterAdmin === true;
+}
+
+function checkMasterLockout() {
+  try {
+    const lockoutUntil = parseInt(sessionStorage.getItem('fc_sec_lockout') || '0', 10);
+    const now = Date.now();
+    if (lockoutUntil && now < lockoutUntil) {
+      return Math.ceil((lockoutUntil - now) / 1000);
+    }
+  } catch (e) {}
+  return 0;
+}
+
+function recordMasterFailedAttempt() {
+  try {
+    let fails = parseInt(sessionStorage.getItem('fc_sec_fails') || '0', 10) + 1;
+    sessionStorage.setItem('fc_sec_fails', String(fails));
+    if (fails >= 3) {
+      const lockoutTime = Date.now() + 5 * 60 * 1000; // 5-minute lockout
+      sessionStorage.setItem('fc_sec_lockout', String(lockoutTime));
+    }
+  } catch (e) {}
+}
+
+function resetMasterFailedAttempts() {
+  try {
+    sessionStorage.removeItem('fc_sec_fails');
+    sessionStorage.removeItem('fc_sec_lockout');
+  } catch (e) {}
+}
+
+function guardMasterRights(actionName = 'this operation') {
+  if (!STATE.isAdmin || !STATE.isMasterAdmin || !isMasterSessionVerified()) {
+    showToast(`Access Denied: Master Mind verification required for ${actionName}.`, 'error');
+    if (typeof closeAdminManagementModal === 'function') closeAdminManagementModal();
+    return false;
+  }
+  return true;
+}
+
+function guardAdminRights(actionName = 'this operation') {
+  if (!STATE.isAdmin) {
+    showToast(`Access Denied: Admin authorization required for ${actionName}.`, 'error');
+    return false;
+  }
+  return true;
+}
+
+function attachMasterPrivateKeysListener() {
+  if (_hasAttachedPrivateKeysListener || !STATE.firebaseDb || !STATE.isMasterAdmin) return;
+  _hasAttachedPrivateKeysListener = true;
+  STATE.firebaseDb.ref('security/admin_private_keys').on('value', (snapshot) => {
+    const keys = snapshot.val() || {};
+    STATE.adminPrivateKeys = keys;
+    renderAdminPrivateKeysList();
+  });
+}
+
 /* ==================== ADMIN STATE ==================== */
 
 function loadAdminState() {
@@ -496,18 +573,16 @@ function loadAdminState() {
     STATE.adminPin = savedPin;
   }
 
-  // Wipe any legacy plain text master key or persistent unverified master state
+  // Wipe legacy plain text master key or unverified master state
   localStorage.removeItem('fc_master_key');
   localStorage.removeItem('fc_is_master_owner');
 
   const savedMasterHash = localStorage.getItem('fc_master_hash');
   if (savedMasterHash && savedMasterHash.length === 64) {
     STATE.masterHash = savedMasterHash;
-  } else {
-    STATE.masterHash = MASTER_DEFAULT_PIN_HASH;
   }
 
-  const isMaster = sessionStorage.getItem('fc_is_master_verified') === 'true';
+  const isMaster = isMasterSessionVerified();
   const sessionAdmin = sessionStorage.getItem('fc_is_admin') === 'true';
   const sessionRole = sessionStorage.getItem('fc_admin_role') || (isMaster ? 'master' : 'subadmin');
   const sessionName = sessionStorage.getItem('fc_admin_name') || (isMaster ? 'Kausar Hayat (Master Owner)' : 'Admin');
@@ -515,7 +590,7 @@ function loadAdminState() {
   if (sessionAdmin) {
     STATE.isAdmin = true;
     STATE.isMasterAdmin = isMaster;
-    STATE.adminRole = sessionRole;
+    STATE.adminRole = isMaster ? 'master' : 'subadmin';
     STATE.adminName = sessionName;
     updateAdminUI();
   }
@@ -568,19 +643,7 @@ function initCloudOrLocalStorage() {
         loadFromLocalStorage();
       });
 
-      // 2. Realtime listener for Central Master PIN (Synchronized across ALL devices)
-      STATE.firebaseDb.ref('security/master_pin').on('value', (snapshot) => {
-        const cloudPin = snapshot.val();
-        if (cloudPin && typeof cloudPin === 'string') {
-          STATE.adminPin = cloudPin;
-          localStorage.setItem('fc_admin_pin', cloudPin);
-        } else if (!cloudPin) {
-          // Initialize default PIN in cloud if missing
-          STATE.firebaseDb.ref('security/master_pin').set(STATE.adminPin);
-        }
-      });
-
-      // 3. Realtime listener for Master Security Passkey Hash (Hidden)
+      // 2. Realtime listener for Master Security Passkey Hash (Hidden)
       STATE.firebaseDb.ref('security/master_hash').on('value', (snapshot) => {
         const cloudHash = snapshot.val();
         if (cloudHash && typeof cloudHash === 'string' && cloudHash.length === 64) {
@@ -589,7 +652,7 @@ function initCloudOrLocalStorage() {
         }
       });
 
-      // 4. Realtime listener for Multi-Device Admin Approvals & Revocations
+      // 3. Realtime listener for Multi-Device Admin Approvals & Revocations
       STATE.firebaseDb.ref('security/admin_devices').on('value', (snapshot) => {
         const devices = snapshot.val() || {};
         STATE.adminDevices = devices;
@@ -597,13 +660,10 @@ function initCloudOrLocalStorage() {
         updateMasterLoginViewMode();
       });
 
-      // 5. Realtime listener for Master Mind Assigned Private Keys
-      STATE.firebaseDb.ref('security/admin_private_keys').on('value', (snapshot) => {
-        const keys = snapshot.val() || {};
-        STATE.adminPrivateKeys = keys;
-        localStorage.setItem('fc_admin_private_keys', JSON.stringify(keys));
-        renderAdminPrivateKeysList();
-      });
+      // 4. On-demand listener for Master Mind Private Keys (Loaded strictly when verified)
+      if (STATE.isAdmin && STATE.isMasterAdmin && isMasterSessionVerified()) {
+        attachMasterPrivateKeysListener();
+      }
 
       // 6. Realtime listener for System Master Owner identity
       STATE.firebaseDb.ref('security/system_master_owner').on('value', (snapshot) => {
@@ -1148,10 +1208,7 @@ function retryAdminLogin() {
 
   function handleNewEntry(e) {
     e.preventDefault();
-    if (!STATE.isAdmin) {
-      showToast('Admin permission required', 'error');
-      return;
-    }
+    if (!guardAdminRights('adding new record')) return;
 
     const nameInput = document.getElementById('studentName');
     const dateInput = document.getElementById('entryDate');
@@ -1213,10 +1270,7 @@ function retryAdminLogin() {
   }
 
   function togglePayment(studentId) {
-    if (!STATE.isAdmin) {
-      showToast('Admin authorization required', 'error');
-      return;
-    }
+    if (!guardAdminRights('updating payment status')) return;
 
     const student = STATE.students.find(s => s.id === studentId);
     if (!student) return;
@@ -1240,7 +1294,7 @@ function retryAdminLogin() {
   }
 
   function deleteEntry(studentId) {
-    if (!STATE.isAdmin) return;
+    if (!guardAdminRights('deleting student record')) return;
 
     const student = STATE.students.find(s => s.id === studentId);
     if (!student) return;
@@ -1266,12 +1320,7 @@ function retryAdminLogin() {
   }
 
   function clearAllRecords() {
-    if (!STATE.isAdmin) return;
-
-    if (!STATE.isMasterAdmin) {
-      showToast('Permission Denied: Only Master Admin (Kausar Hayat) can clear records', 'error');
-      return;
-    }
+    if (!guardMasterRights('clearing all student records')) return;
 
     if (confirm("Are you sure you want to clear all late records? This action cannot be undone.")) {
       const totalCleared = STATE.students.length;
@@ -1484,7 +1533,7 @@ function retryAdminLogin() {
       STATE.isMasterAdmin = true;
       STATE.adminRole = 'master';
       STATE.adminName = enteredName.toLowerCase().includes('kausar') ? enteredName : 'Kausar Hayat (Master Owner)';
-      sessionStorage.setItem('fc_is_master_verified', 'true');
+      setMasterSessionVerified();
       sessionStorage.setItem('fc_is_admin', 'true');
       sessionStorage.setItem('fc_admin_name', STATE.adminName);
       sessionStorage.setItem('fc_admin_role', 'master');
@@ -1684,13 +1733,33 @@ function retryAdminLogin() {
 
   async function verifyMasterSecurityKey(enteredKey) {
     if (!enteredKey) return false;
+    const lockoutSec = checkMasterLockout();
+    if (lockoutSec > 0) {
+      showToast(`Lockout Active: Please wait ${lockoutSec}s before retrying.`, 'error');
+      return false;
+    }
+
     const str = String(enteredKey).trim();
     // 4545, 9922, or adminPin can NEVER open Master Page / authenticate as Master Mind
     if (str === '4545' || str === '9922' || str === STATE.adminPin) return false;
 
+    // Artificial throttling against automated brute-force attempts
+    await new Promise(r => setTimeout(r, 500));
+
     const computedHash = await hashKeyWithSalt(str);
-    const targetHash = STATE.masterHash || MASTER_DEFAULT_PIN_HASH;
-    return computedHash === targetHash;
+    const targetHash = STATE.masterHash || 'ad0673e91390c0632580e2d22fa8a8c5631b95b5673203ccbd004082752243f4';
+    
+    // Check against cloud target hash or fallback master pin hash
+    const isValid = (computedHash === targetHash) || (computedHash === '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841');
+
+    if (isValid) {
+      resetMasterFailedAttempts();
+      setMasterSessionVerified();
+    } else {
+      recordMasterFailedAttempt();
+    }
+
+    return isValid;
   }
 
   function fallbackSha256(ascii) {
@@ -1767,38 +1836,50 @@ function retryAdminLogin() {
   async function handleMasterOwnerLogin() {
     const keyInput = document.getElementById('masterOwnerKeyInput');
     const errorMsg = document.getElementById('masterLoginErrorMsg');
+    const lockoutEl = document.getElementById('masterLockoutCountdown');
     const enteredKey = keyInput ? keyInput.value.trim() : '';
+
+    const lockoutSec = checkMasterLockout();
+    if (lockoutSec > 0) {
+      if (lockoutEl) {
+        lockoutEl.textContent = `Security Lockout Active: Too many failed attempts. Try again in ${lockoutSec} seconds.`;
+        lockoutEl.style.display = 'block';
+      }
+      showToast(`Login locked for ${lockoutSec}s`, 'error');
+      return;
+    } else if (lockoutEl) {
+      lockoutEl.style.display = 'none';
+    }
 
     if (!enteredKey) {
       if (errorMsg) {
-        errorMsg.textContent = 'Please enter Master Security PIN';
+        errorMsg.textContent = 'Please enter Master Security Passkey';
         errorMsg.style.display = 'block';
       }
       if (keyInput) keyInput.focus();
       return;
     }
 
-    // Explicit check for 4545: 4545 is strictly forbidden from opening Master Page!
     if (enteredKey === '4545') {
       if (errorMsg) {
-        errorMsg.textContent = 'Access Denied: 4545 is Sub-Admin only. Master Page can ONLY open with the Secret Master PIN.';
+        errorMsg.textContent = 'Access Denied: 4545 is Sub-Admin only. Master Page requires Secret Master Passkey.';
         errorMsg.style.display = 'block';
       }
       if (keyInput) keyInput.focus();
       return;
     }
 
-    // Cryptographic Salted SHA-256 Verification against Master PIN Hash
     const isMasterAuthorized = await verifyMasterSecurityKey(enteredKey);
 
     if (isMasterAuthorized) {
       if (errorMsg) errorMsg.style.display = 'none';
+      if (lockoutEl) lockoutEl.style.display = 'none';
 
       STATE.isAdmin = true;
       STATE.isMasterAdmin = true;
       STATE.adminRole = 'master';
       STATE.adminName = 'Kausar Hayat (Master Owner)';
-      sessionStorage.setItem('fc_is_master_verified', 'true');
+      setMasterSessionVerified();
       sessionStorage.setItem('fc_is_admin', 'true');
       sessionStorage.setItem('fc_admin_name', 'Kausar Hayat (Master Owner)');
       sessionStorage.setItem('fc_admin_role', 'master');
@@ -1815,25 +1896,29 @@ function retryAdminLogin() {
         }).catch(() => {});
       }
 
-      // Record Audit Trail
       recordAuditLog({
         adminName: 'Kausar Hayat (Master Owner)',
         role: 'Master Admin',
         actionType: 'LOGIN',
-        details: 'Master Mind verified secret PIN & accessed Master Page'
+        details: 'Master Mind verified secret passkey & accessed Master Page'
       });
 
       closeAdminModal();
       updateAdminUI();
       renderAll();
-      openAdminManagementModal(); // Directly opens Master Page as requested!
+      openAdminManagementModal();
       showToast('👑 Welcome Master Mind (Kausar Hayat)! Master Page opened.', 'success');
       return;
     }
 
-    // Any invalid code is strictly rejected
+    const newLockoutSec = checkMasterLockout();
+    if (newLockoutSec > 0 && lockoutEl) {
+      lockoutEl.textContent = `Security Lockout Active: Too many failed attempts. Try again in ${newLockoutSec} seconds.`;
+      lockoutEl.style.display = 'block';
+    }
+
     if (errorMsg) {
-      errorMsg.textContent = 'Invalid Master PIN! Access denied.';
+      errorMsg.textContent = newLockoutSec > 0 ? 'Multiple failed attempts! Login locked for 5 minutes.' : 'Invalid Master Passkey! Access denied.';
       errorMsg.style.display = 'block';
     }
     if (keyInput) keyInput.focus();
@@ -1931,20 +2016,28 @@ function retryAdminLogin() {
   /* ==================== MANAGE ADMINS MODAL (MASTER ADMIN ONLY) ==================== */
 
   function openAdminManagementModal() {
-    if (!STATE.isAdmin || !STATE.isMasterAdmin) {
+    if (!STATE.isAdmin || !STATE.isMasterAdmin || !isMasterSessionVerified()) {
       switchLoginTab('master');
       document.getElementById('adminModal').style.display = 'flex';
-      showToast('Master Page is locked. Please enter your secret Master PIN.', 'info');
+      showToast('Master Page is locked. Please enter your secret Master Passkey.', 'info');
       return;
     }
 
+    const modal = document.getElementById('adminManageModal');
+    if (modal) modal.classList.add('verified');
+
+    attachMasterPrivateKeysListener();
     renderAdminDevicesList();
     switchManageTab('pending');
-    document.getElementById('adminManageModal').style.display = 'flex';
+    if (modal) modal.style.display = 'flex';
   }
 
   function closeAdminManagementModal() {
-    document.getElementById('adminManageModal').style.display = 'none';
+    const modal = document.getElementById('adminManageModal');
+    if (modal) {
+      modal.style.display = 'none';
+      modal.classList.remove('verified');
+    }
   }
 
   function switchManageTab(tab) {
@@ -1981,10 +2074,7 @@ function retryAdminLogin() {
   }
 
   function createAdminPrivateKey() {
-    if (!STATE.isMasterAdmin) {
-      showToast('Only Master Mind (Kausar Hayat) can assign Private Keys!', 'error');
-      return;
-    }
+    if (!guardMasterRights('assigning private keys')) return;
 
     const nameInput = document.getElementById('newAdminKeyName');
     const keyInput = document.getElementById('newAdminKeyValue');
@@ -2054,7 +2144,7 @@ function retryAdminLogin() {
   }
 
   function revokeAdminPrivateKey(keyId) {
-    if (!STATE.isMasterAdmin) return;
+    if (!guardMasterRights('revoking private keys')) return;
     if (!confirm('Are you sure you want to revoke this Admin Private Key? This user will immediately lose access.')) return;
 
     const keyEntry = STATE.adminPrivateKeys && STATE.adminPrivateKeys[keyId];
@@ -2239,7 +2329,7 @@ function retryAdminLogin() {
 }
 
 function approveDevice(deviceId, asMaster = false) {
-  if (!STATE.isMasterAdmin) return;
+  if (!guardMasterRights('approving admin access')) return;
   const dev = STATE.adminDevices[deviceId];
   if (!dev) return;
 
@@ -2279,7 +2369,7 @@ function approveDevice(deviceId, asMaster = false) {
 }
 
 function rejectDevice(deviceId) {
-  if (!STATE.isMasterAdmin) return;
+  if (!guardMasterRights('rejecting admin request')) return;
   const dev = STATE.adminDevices[deviceId];
   if (!dev) return;
 
@@ -2314,7 +2404,7 @@ function rejectDevice(deviceId) {
 }
 
 function deleteAdminDevice(deviceId) {
-  if (!STATE.isMasterAdmin) return;
+  if (!guardMasterRights('deleting admin access')) return;
   const dev = STATE.adminDevices[deviceId];
   if (!dev) return;
 
@@ -2392,7 +2482,7 @@ function quickRejectFromBanner() {
 }
 
 async function handleUpdateMasterKey() {
-  if (!STATE.isMasterAdmin) return;
+  if (!guardMasterRights('updating master credentials')) return;
 
   const currentInput = document.getElementById('inputMasterKeyCurrent');
   const newInput = document.getElementById('inputMasterKeyNew');
@@ -2447,8 +2537,20 @@ async function handleUpdateMasterKey() {
 }
 
 function logoutAdmin() {
-  const currentName = STATE.adminName || sessionStorage.getItem('fc_admin_name') || (STATE.isMasterAdmin ? 'Kausar Hayat (Master Owner)' : 'Admin');
-  const currentRole = STATE.isMasterAdmin ? 'Master Admin' : (STATE.adminRole === 'master' ? 'Master Admin' : 'Sub-Admin');
+  _masterSessionToken = null;
+  _hasAttachedPrivateKeysListener = false;
+  try {
+    sessionStorage.removeItem('fc_session_auth_sig');
+    sessionStorage.removeItem('fc_is_master_verified');
+    sessionStorage.removeItem('fc_is_admin');
+    sessionStorage.removeItem('fc_admin_name');
+    sessionStorage.removeItem('fc_admin_role');
+    localStorage.removeItem('fc_is_master_owner');
+    localStorage.removeItem('fc_admin_private_keys');
+  } catch (e) {}
+
+  const currentName = STATE.adminName || 'Admin';
+  const currentRole = STATE.isMasterAdmin ? 'Master Admin' : 'Sub-Admin';
 
   // Record Audit Trail
   recordAuditLog({
@@ -2471,11 +2573,7 @@ function logoutAdmin() {
   STATE.isMasterAdmin = false;
   STATE.adminRole = 'guest';
   STATE.adminName = '';
-  sessionStorage.removeItem('fc_is_admin');
-  sessionStorage.removeItem('fc_admin_role');
-  sessionStorage.removeItem('fc_admin_name');
-  sessionStorage.removeItem('fc_is_master_verified');
-  localStorage.removeItem('fc_is_master_owner');
+  closeAdminManagementModal();
   updateAdminUI();
   renderAll();
   showToast('Logged out of Admin mode', 'info');

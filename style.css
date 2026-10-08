@@ -2151,3 +2151,24 @@ body.theme-dark .admin-entry-card {
   color: white;
 }
 
+/* ==================== SECURITY SHIELD MODAL STYLES ==================== */
+#adminManageModal:not(.verified) #adminManageTabs,
+#adminManageModal:not(.verified) #adminManageModalBody {
+  display: none !important;
+}
+
+#adminManageModal:not(.verified) #adminManageLockedPlaceholder {
+  display: block !important;
+}
+
+#adminManageModal.verified #adminManageTabs {
+  display: flex !important;
+}
+
+#adminManageModal.verified #adminManageModalBody {
+  display: block !important;
+}
+
+#adminManageModal.verified #adminManageLockedPlaceholder {
+  display: none !important;
+}

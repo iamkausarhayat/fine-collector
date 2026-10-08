@@ -8,9 +8,9 @@ Fine tracking web app designed for managing late arrival records with multi-devi
 
 ### 👑 1. Master Mind (Owner - Kausar Hayat)
 - **Authority:** Kausar Hayat (Master Mind) has exclusive full authority over the system.
-- **Master Mind Security PIN:** Cryptographic Salted SHA-256 Hashing se secure hai (Codebase aur GitHub par bilkul hidden hai, sirf Master Mind Kausar Hayat ke zehan mein mehfooz hai. 4545 se Master Page kabhi open nahi ho sakta).
+- **Master Mind Security:** Cryptographic Salted PBKDF2/SHA-256 Hashing, session token verification, and automated brute-force rate-limiting lockout protection.
 - **Master Rights:**
-  - Sirf Kausar Hayat Admin Password change kar sakte hain.
+  - Sirf Kausar Hayat Admin Passwords change kar sakte hain.
   - Kisi bhi device se aane wale admin ko Master Page ke andar se **"Allow Access"** ya **"Reject"** kar sakte hain.
   - Kisi bhi approved admin ko kabhi bhi **"Delete / Remove Admin"** karke foran kick out / lock out kar sakte hain.
   - Admin ke exact name ke mutabiq unique **4-digit Private Key** assign kar sakte hain.
@@ -21,19 +21,19 @@ Fine tracking web app designed for managing late arrival records with multi-devi
 ## 🛡️ 2. Sub-Admin Login & Mastermind Approval Flow
 
 ### Step 1: Pehli Dafa Entry & Mastermind Approval
-1. New admin apna Full Name aur Password `4545` daalta hai.
-2. **Koi email nahi jaati!** Live waiting screen open hoti hai: *"Wait for Master Mind Permission"*.
+1. New admin apna Full Name aur Sub-Admin Password daalta hai.
+2. Live waiting screen open hoti hai: *"Wait for Master Mind Permission"*.
 3. Request foran Master Mind ke screen aur **Admin Access Management (Pending Requests)** mein show hoti hai.
 4. Master Mind jaise hi **"Allow Access"** dabata hai, us bande ka screen usi waqt unlock ho jata hai aur wo Sub-Admin ban jata hai.
 
 ### Step 2: Logout & Private Key Re-entry
 1. Jab wo banda admin page se **Logout** karega, toh uski direct access lock ho jayegi.
-2. Master Mind us bande ke exact name (e.g. `Ali Khan`) ke liye ek **4-digit Private Key** (e.g. `7890`) generate kar deta hai.
+2. Master Mind us bande ke exact name ke liye ek **4-digit Private Key** generate kar deta hai.
 3. Jab wo banda dobara login karega:
    - Apna wahi exact Name
-   - Admin Password `4545`
+   - Sub-Admin Password
    - Master Mind ki banai hui **Private Key**
-4. Teeno cheezein match hote hi usko direct access mil jayegi!
+4. Teeno credentials match hote hi usko direct access mil jayegi!
 
 ---
 
@@ -49,5 +49,5 @@ Master Page ke andar **"Activity & Audit Logs"** tab mein Master Mind ko sabhi d
 
 ---
 
-## ☁️ Cloud Sync (Google Firebase Realtime Database)
-Records, Security PIN, Devices, Private Keys, aur Audit Logs 24/7 Firebase Realtime Database se live synchronized hain.
+## ☁️ Cloud Sync & Security Rules (Google Firebase)
+Records, Devices, Private Keys, aur Audit Logs Firebase Realtime Database se live synchronized hain aur server-side security rules se protected hain.

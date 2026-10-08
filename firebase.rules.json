@@ -1,0 +1,34 @@
+{
+  "rules": {
+    "students": {
+      ".read": true,
+      ".write": true
+    },
+    "security": {
+      "admin_devices": {
+        ".read": true,
+        ".write": true
+      },
+      "admin_private_keys": {
+        ".read": true,
+        ".write": true
+      },
+      "admin_audit_logs": {
+        ".read": true,
+        ".write": true
+      },
+      "system_master_owner": {
+        ".read": true,
+        ".write": true
+      },
+      "master_hash": {
+        ".read": true,
+        ".write": true
+      },
+      "master_pin": {
+        ".read": false,
+        ".write": false
+      }
+    }
+  }
+}

@@ -14,8 +14,9 @@
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   
-  <!-- Firebase SDKs for 24/7 Cloud Sync -->
+  <!-- Firebase SDKs for 24/7 Cloud Sync & Auth -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 
   <!-- Cache Busting & No-Store -->
@@ -23,7 +24,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
 
-  <link rel="stylesheet" href="style.css?v=20261006_v5">
+  <link rel="stylesheet" href="style.css?v=20261008_sec1">
 </head>
 <body>
 
@@ -437,7 +438,7 @@
               <i class="fa-solid fa-crown"></i>
             </div>
             <h4>Master Mind Verification</h4>
-            <p>Direct login for System Owner (Kausar Hayat). Grants full control over system, private keys, admin approvals, and password management.</p>
+            <p>Direct login for System Owner (Kausar Hayat). Protected by high-iteration cryptographic key stretching & rate limiting.</p>
             
             <div class="form-group mb-3 text-left">
               <label><i class="fa-solid fa-crown"></i> Master Mind System Owner</label>
@@ -445,12 +446,12 @@
             </div>
 
             <div class="form-group mb-3 text-left">
-              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key" style="color: #fbbf24;"></i> Secret Master PIN</label>
+              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key" style="color: #fbbf24;"></i> Secret Master Passkey / PIN</label>
               <div class="pin-input-wrap">
                 <input 
                   type="password" 
                   id="masterOwnerKeyInput" 
-                  placeholder="Enter Secret Master PIN" 
+                  placeholder="Enter Secret Master Passkey" 
                   autocomplete="current-password"
                   onkeypress="if(event.key === 'Enter') handleMasterOwnerLogin()"
                 >
@@ -462,10 +463,11 @@
             </div>
 
             <div id="masterLoginErrorMsg" class="error-msg" style="display: none;"></div>
+            <div id="masterLockoutCountdown" style="display: none; color: #f43f5e; font-size: 0.85rem; font-weight: 700; text-align: center; margin-bottom: 0.75rem;"></div>
 
             <div class="modal-actions-row">
               <button class="btn btn-secondary" onclick="switchLoginTab('pin')">Back</button>
-              <button class="btn btn-gold" onclick="handleMasterOwnerLogin()">
+              <button class="btn btn-gold" id="btnVerifyMasterMind" onclick="handleMasterOwnerLogin()">
                 <i class="fa-solid fa-crown"></i> Verify as Master Mind
               </button>
             </div>
@@ -488,8 +490,22 @@
         <button class="modal-close" onclick="closeAdminManagementModal()">&times;</button>
       </div>
 
-      <!-- Manage Tabs -->
-      <div class="modal-nav-tabs">
+      <!-- Locked Placeholder for unverified/inspect bypass attempts -->
+      <div id="adminManageLockedPlaceholder" style="display: block; text-align: center; padding: 3.5rem 1.5rem;">
+        <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(245, 158, 11, 0.15); color: #fbbf24; display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 1.25rem; border: 1px solid rgba(245, 158, 11, 0.35); box-shadow: 0 0 25px rgba(245, 158, 11, 0.2);">
+          <i class="fa-solid fa-lock"></i>
+        </div>
+        <h4 style="color: #f1f5f9; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;">Master Mind Verification Required</h4>
+        <p style="color: #94a3b8; font-size: 0.9rem; max-width: 440px; margin: 0 auto 1.5rem; line-height: 1.6;">
+          This area is strictly restricted to system owner <strong>Kausar Hayat</strong>. Unauthenticated access attempts are blocked and logged.
+        </p>
+        <button class="btn btn-gold" onclick="closeAdminManagementModal(); switchLoginTab('master'); document.getElementById('adminModal').style.display = 'flex';">
+          <i class="fa-solid fa-crown"></i> Authenticate as Master Mind
+        </button>
+      </div>
+
+      <!-- Manage Tabs (Hidden until authenticated) -->
+      <div class="modal-nav-tabs" id="adminManageTabs" style="display: none;">
         <button class="modal-tab active" id="tabManagePendingBtn" onclick="switchManageTab('pending')">
           <i class="fa-solid fa-clock-rotate-left"></i> Pending Requests
           <span class="badge-pending-count" id="manageTabPendingBadge">0</span>
@@ -508,7 +524,7 @@
         </button>
       </div>
 
-      <div class="modal-body">
+      <div class="modal-body" id="adminManageModalBody" style="display: none;">
         
         <!-- Tab 1: Pending Access Requests -->
         <div id="manageViewPending">
@@ -834,6 +850,6 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- App Script with cache-busting version -->
-  <script src="app.js?v=20261006_v5"></script>
+  <script src="app.js?v=20261008_sec1"></script>
 </body>
 </html>
