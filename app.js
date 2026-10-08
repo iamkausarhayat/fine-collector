@@ -735,7 +735,6 @@ function initCloudOrLocalStorage() {
           const data = doc.data();
           if (data && data.masterHash) {
             STATE.masterHash = data.masterHash;
-            MASTER_VALID_HASHES.add(data.masterHash);
             localStorage.setItem('fc_master_hash', data.masterHash);
           }
           if (data && data.adminPin) {
@@ -1789,11 +1788,7 @@ function retryAdminLogin() {
 
   /* ==================== MASTER OWNER AUTHENTICATION & HASH VALIDATION ==================== */
   const MASTER_SECURITY_SALT = 'FineCollector_MasterMind_Salt_2026_KausarHayat!';
-  const MASTER_VALID_HASHES = new Set([
-    '2e6297039248aa888350e2e1e045d9ba7d02367b7f5e78ad6288450299519133', // 1238
-    '9491c6770f71c1ff4c88692fdae1b9783adc7422acc52784f2738fc9be202841', // 1255
-    'ad0673e91390c0632580e2d22fa8a8c5631b95b5673203ccbd004082752243f4'  // 1256
-  ]);
+  const DEFAULT_MASTER_HASH = '2e6297039248aa888350e2e1e045d9ba7d02367b7f5e78ad6288450299519133'; // Default Master PIN: 1238
 
   async function hashKeyWithSalt(key) {
     if (!key) return '';
@@ -1825,22 +1820,34 @@ function retryAdminLogin() {
     // Artificial throttling against automated brute-force attempts
     await new Promise(r => setTimeout(r, 200));
 
-    // 1. Direct Master PIN match (1238, 1255, 1256, or dynamic updated PIN)
-    if (str === '1238' || str === '1255' || str === '1256' || (STATE.adminPin && str === String(STATE.adminPin).trim())) {
+    // Active Master Hash: Either current custom PIN hash from Firestore or default initial hash (1238)
+    const activeMasterHash = STATE.masterHash || localStorage.getItem('fc_master_hash') || DEFAULT_MASTER_HASH;
+
+    // 1. Direct match with current active plain PIN (if stored in memory)
+    if (STATE.adminPin && str === String(STATE.adminPin).trim()) {
       resetMasterFailedAttempts();
       setMasterSessionVerified();
       return true;
     }
 
-    // 2. Cryptographic Salted Hash match
+    // 2. Cryptographic Salted Hash match against activeMasterHash ONLY
     const computedHash = await hashKeyWithSalt(str);
-    if (MASTER_VALID_HASHES.has(computedHash) || (STATE.masterHash && computedHash === STATE.masterHash)) {
+    if (computedHash === activeMasterHash) {
       resetMasterFailedAttempts();
       setMasterSessionVerified();
       return true;
     }
 
-    // 3. Primary Server-side Firebase Auth (if project has Auth configured)
+    // 3. Fallback to default PIN (1238) ONLY if no custom PIN was ever configured in Firestore/storage
+    if (!STATE.masterHash && !localStorage.getItem('fc_master_hash')) {
+      if (str === '1238' || computedHash === DEFAULT_MASTER_HASH) {
+        resetMasterFailedAttempts();
+        setMasterSessionVerified();
+        return true;
+      }
+    }
+
+    // 4. Primary Server-side Firebase Auth (if project has Auth configured)
     if (_internalFirebase && _internalFirebase.auth) {
       try {
         const userCredential = await _internalFirebase.auth().signInWithEmailAndPassword(enteredEmail, str);
@@ -2587,7 +2594,6 @@ async function handleUpdateMasterKey() {
   const newHash = await hashKeyWithSalt(newK);
   STATE.masterHash = newHash;
   STATE.adminPin = newK;
-  MASTER_VALID_HASHES.add(newHash);
   localStorage.setItem('fc_master_hash', newHash);
   localStorage.setItem('fc_admin_pin', newK);
 
@@ -2820,7 +2826,6 @@ async function handleChangePin() {
   const newHash = await hashKeyWithSalt(newPin);
   STATE.masterHash = newHash;
   STATE.adminPin = newPin;
-  MASTER_VALID_HASHES.add(newHash);
   localStorage.setItem('fc_master_hash', newHash);
   localStorage.setItem('fc_admin_pin', newPin);
 
