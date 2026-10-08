@@ -7,6 +7,9 @@
 // Global Configuration
 const DEFAULT_FIREBASE_PROJECT_ID = "fine-collector";
 
+// Private Internal SDK Reference (Cloaked from DevTools Console)
+const _internalFirebase = window.firebase;
+
 // Application State
 const STATE = {
   students: [],
@@ -548,7 +551,7 @@ function guardMasterRights(actionName = 'this operation') {
 
 function isAuthorizedAdminSession() {
   const hasMasterSig = isMasterSessionVerified();
-  const hasFirebaseUser = !!(STATE.firebaseUser || (window.firebase && firebase.auth && firebase.auth().currentUser));
+  const hasFirebaseUser = !!(STATE.firebaseUser || (_internalFirebase && _internalFirebase.auth && _internalFirebase.auth().currentUser));
   const hasSubAdminToken = !!sessionStorage.getItem('fc_admin_auth_token') && STATE.isAdmin;
   const isApprovedSession = STATE.isAdmin && (STATE.adminRole === 'master' || STATE.adminRole === 'subadmin');
   return (hasMasterSig || hasFirebaseUser || hasSubAdminToken || isApprovedSession);
@@ -635,7 +638,7 @@ function initCloudOrLocalStorage() {
   }
   const savedConfigJson = localStorage.getItem('fc_firebase_config');
 
-  if (window.firebase && window.firebase.firestore) {
+  if (_internalFirebase && _internalFirebase.firestore) {
     try {
       let config = {
         projectId: savedProjectId
@@ -646,13 +649,25 @@ function initCloudOrLocalStorage() {
       if (!config.apiKey) config.apiKey = "AIzaSyDummyFirestoreClientKey2026";
       if (!config.authDomain) config.authDomain = `${config.projectId}.firebaseapp.com`;
 
-      if (!firebase.apps.length) {
-        STATE.firebaseApp = firebase.initializeApp(config);
+      if (!_internalFirebase.apps.length) {
+        STATE.firebaseApp = _internalFirebase.initializeApp(config);
       } else {
-        STATE.firebaseApp = firebase.app();
+        STATE.firebaseApp = _internalFirebase.app();
       }
-      STATE.firestoreDb = firebase.firestore();
+      STATE.firestoreDb = _internalFirebase.firestore();
       STATE.isCloudConnected = true;
+
+      // Cloak window.firebase from global console scope so typeof firebase returns 'undefined'
+      try {
+        delete window.firebase;
+      } catch (e) {}
+      try {
+        Object.defineProperty(window, 'firebase', {
+          get: () => undefined,
+          set: () => {},
+          configurable: false
+        });
+      } catch (e) {}
 
       // 1. Realtime listener for students collection (Cloud Firestore)
       STATE.firestoreDb.collection('students').onSnapshot((snapshot) => {
@@ -1811,9 +1826,9 @@ function retryAdminLogin() {
     }
 
     // 3. Primary Server-side Firebase Auth (if project has Auth configured)
-    if (window.firebase && firebase.auth) {
+    if (_internalFirebase && _internalFirebase.auth) {
       try {
-        const userCredential = await firebase.auth().signInWithEmailAndPassword(enteredEmail, str);
+        const userCredential = await _internalFirebase.auth().signInWithEmailAndPassword(enteredEmail, str);
         if (userCredential && userCredential.user) {
           resetMasterFailedAttempts();
           setMasterSessionVerified();
@@ -2610,8 +2625,8 @@ function logoutAdmin() {
   });
 
   // Terminate Firebase Auth session
-  if (window.firebase && firebase.auth) {
-    try { firebase.auth().signOut().catch(() => {}); } catch (e) {}
+  if (_internalFirebase && _internalFirebase.auth) {
+    try { _internalFirebase.auth().signOut().catch(() => {}); } catch (e) {}
   }
 
   // Mark device as logged_out in Firestore so session is terminated
