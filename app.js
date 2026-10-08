@@ -2891,55 +2891,88 @@ function showToast(message, type = 'info') {
   }, 3000);
 }
 
-// Explicit window bindings for guaranteed HTML onclick availability across all browsers
-window.toggleAdminModal = toggleAdminModal;
-window.closeAdminModal = closeAdminModal;
-window.retryAdminLogin = retryAdminLogin;
-window.switchLoginTab = switchLoginTab;
-window.handleAdminLogin = handleAdminLogin;
-window.goToAdminStep2 = goToAdminStep2;
-window.backToAdminStep1 = backToAdminStep1;
-window.handleAdminPrivateKeySubmit = handleAdminPrivateKeySubmit;
-window.requestEmailPermissionFromStep2 = requestEmailPermissionFromStep2;
-window.sendMasterRecoveryEmail = sendMasterRecoveryEmail;
-window.createAdminPrivateKey = createAdminPrivateKey;
-window.revokeAdminPrivateKey = revokeAdminPrivateKey;
-window.prefillAssignPrivateKey = prefillAssignPrivateKey;
-window.updateMasterLoginViewMode = updateMasterLoginViewMode;
-window.handleMasterOwnerLogin = handleMasterOwnerLogin;
-window.openAdminManagementModal = openAdminManagementModal;
-window.closeAdminManagementModal = closeAdminManagementModal;
-window.switchManageTab = switchManageTab;
-window.approveDevice = approveDevice;
-window.rejectDevice = rejectDevice;
-window.deleteAdminDevice = deleteAdminDevice;
-window.revokeDevice = deleteAdminDevice;
-window.quickApproveFromBanner = quickApproveFromBanner;
-window.quickRejectFromBanner = quickRejectFromBanner;
-window.handleUpdateMasterKey = handleUpdateMasterKey;
-window.logoutAdmin = logoutAdmin;
-window.openPinModal = openPinModal;
-window.closePinModal = closePinModal;
-window.handleChangePin = handleChangePin;
-window.openCloudModal = openCloudModal;
-window.closeCloudModal = closeCloudModal;
-window.saveCloudConfig = saveCloudConfig;
-window.disconnectCloud = disconnectCloud;
-window.handleNewEntry = handleNewEntry;
-window.togglePayment = togglePayment;
-window.deleteEntry = deleteEntry;
-window.openEditModal = openEditModal;
-window.closeEditModal = closeEditModal;
-window.saveEditedEntry = saveEditedEntry;
-window.clearAllRecords = clearAllRecords;
-window.applyFilters = applyFilters;
-window.clearSearch = clearSearch;
-window.setPresetTime = setPresetTime;
-window.togglePinVisibility = togglePinVisibility;
-window.sendTestSecurityEmail = sendTestSecurityEmail;
-window.handleModalOverlayClick = handleModalOverlayClick;
-window.clearAuditLogs = clearAuditLogs;
-window.renderAuditLogsList = renderAuditLogsList;
-window.filterAuditLogsForAdmin = filterAuditLogsForAdmin;
+// ==================== READ-ONLY IMMUTABLE BINDINGS & TAMPER SHIELD ====================
+
+const SECURE_BINDINGS = {
+  toggleAdminModal,
+  closeAdminModal,
+  retryAdminLogin,
+  switchLoginTab,
+  handleAdminLogin,
+  goToAdminStep2,
+  backToAdminStep1,
+  handleAdminPrivateKeySubmit,
+  requestEmailPermissionFromStep2,
+  sendMasterRecoveryEmail,
+  createAdminPrivateKey,
+  revokeAdminPrivateKey,
+  prefillAssignPrivateKey,
+  updateMasterLoginViewMode,
+  handleMasterOwnerLogin,
+  openAdminManagementModal,
+  closeAdminManagementModal,
+  switchManageTab,
+  approveDevice,
+  rejectDevice,
+  deleteAdminDevice,
+  revokeDevice: deleteAdminDevice,
+  quickApproveFromBanner,
+  quickRejectFromBanner,
+  handleUpdateMasterKey,
+  logoutAdmin,
+  openPinModal,
+  closePinModal,
+  handleChangePin,
+  openCloudModal,
+  closeCloudModal,
+  saveCloudConfig,
+  disconnectCloud,
+  handleNewEntry,
+  togglePayment,
+  deleteEntry,
+  openEditModal,
+  closeEditModal,
+  saveEditedEntry,
+  clearAllRecords,
+  applyFilters,
+  clearSearch,
+  setPresetTime,
+  togglePinVisibility,
+  sendTestSecurityEmail,
+  handleModalOverlayClick,
+  clearAuditLogs,
+  renderAuditLogsList,
+  filterAuditLogsForAdmin
+};
+
+// Freeze all functions on window so they CANNOT be overwritten in DevTools Console
+Object.keys(SECURE_BINDINGS).forEach(key => {
+  try {
+    Object.defineProperty(window, key, {
+      value: SECURE_BINDINGS[key],
+      writable: false,
+      configurable: false
+    });
+  } catch (e) {
+    window[key] = SECURE_BINDINGS[key];
+  }
+});
+
+// Discourage inspect shortcut keys while Master portal is active
+document.addEventListener('keydown', (e) => {
+  if (
+    e.key === 'F12' || 
+    (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) ||
+    (e.ctrlKey && (e.key === 'U' || e.key === 'u'))
+  ) {
+    const manageModal = document.getElementById('adminManageModal');
+    if (manageModal && manageModal.style.display === 'flex') {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  }
+});
+
 
 
