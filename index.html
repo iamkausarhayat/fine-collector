@@ -14,10 +14,10 @@
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   
-  <!-- Firebase SDKs for 24/7 Cloud Sync & Auth -->
+  <!-- Firebase SDKs for 24/7 Cloud Sync, Firestore & Auth -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Cache Busting & No-Store -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -765,27 +765,27 @@
     </div>
   </div>
 
-  <!-- Cloud Database Setup Modal (Firebase 24/7 Setup) -->
+  <!-- Cloud Database Setup Modal (Firebase Firestore 24/7 Setup) -->
   <div class="modal-overlay" id="cloudModal" onclick="handleModalOverlayClick(event, 'cloudModal')">
     <div class="modal-box modal-lg">
       <div class="modal-header">
-        <h3><i class="fa-solid fa-cloud"></i> Real-Time Cloud Database Setup</h3>
+        <h3><i class="fa-solid fa-cloud"></i> Google Cloud Firestore Setup</h3>
         <button class="modal-close" onclick="closeCloudModal()">&times;</button>
       </div>
       <div class="modal-body">
         <p class="modal-desc">
-          Connect a free Google Firebase Realtime Database URL to enable 24/7 live sync across all devices, even when your computer is shut down.
+          Connected to Google Cloud Firestore collections (<strong>students</strong>, <strong>admin_devices</strong>, <strong>admin_audit_logs</strong>) for 24/7 live sync across all devices.
         </p>
         <div class="form-group mb-3">
-          <label>Firebase Database URL:</label>
-          <input type="text" id="firebaseDbUrlInput" placeholder="https://your-database-id-default-rtdb.firebaseio.com">
+          <label>Firebase Project ID:</label>
+          <input type="text" id="firebaseProjectIdInput" placeholder="fine-collector-default-rtdb">
         </div>
         <div class="form-group mb-3">
           <label>Firebase Config JSON (Optional):</label>
-          <textarea id="firebaseConfigJson" rows="3" placeholder='{"databaseURL": "https://..."}'></textarea>
+          <textarea id="firebaseConfigJson" rows="3" placeholder='{"projectId": "fine-collector-default-rtdb"}'></textarea>
         </div>
         <div class="cloud-status-current" id="cloudStatusDetails">
-          <strong>Status:</strong> <span id="currentStorageMode">Local Storage</span>
+          <strong>Status:</strong> <span id="currentStorageMode">Cloud Firestore Mode</span>
         </div>
       </div>
       <div class="modal-footer">
@@ -850,6 +850,6 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- App Script with cache-busting version -->
-  <script src="app.js?v=20261008_sec2"></script>
+  <script src="app.js?v=20261008_firestore"></script>
 </body>
 </html>

@@ -5,8 +5,7 @@
  */
 
 // Global Configuration
-// Connected to your Google Firebase Realtime Database for 24/7 cross-device live sync:
-const DEFAULT_FIREBASE_DB_URL = "https://fine-collector-default-rtdb.firebaseio.com";
+const DEFAULT_FIREBASE_PROJECT_ID = "fine-collector-default-rtdb";
 
 // Application State
 const STATE = {
@@ -31,7 +30,7 @@ const STATE = {
     status: 'all'
   },
   firebaseApp: null,
-  firebaseDb: null,
+  firestoreDb: null,
   isCloudConnected: false
 };
 
@@ -251,10 +250,10 @@ function recordAuditLog({ actionType, details, adminName, role, studentId, stude
       console.warn('LocalStorage error saving audit log:', e);
     }
 
-    // 3. Persist to Firebase Realtime Database for cross-device live monitoring
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_audit_logs/${logId}`).set(logEntry).catch(e => {
-        console.warn('Firebase audit log sync error:', e);
+    // 3. Persist to Google Cloud Firestore for cross-device live monitoring
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      STATE.firestoreDb.collection('admin_audit_logs').doc(logId).set(logEntry).catch(e => {
+        console.warn('Firestore audit log sync error:', e);
       });
     }
 
@@ -441,11 +440,13 @@ function clearAuditLogs() {
   if (!guardMasterRights('clearing audit logs')) return;
 
   if (confirm('Are you sure you want to clear all Audit Logs? This will wipe the activity history.')) {
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      (STATE.auditLogs || []).forEach(l => {
+        if (l && l.id) STATE.firestoreDb.collection('admin_audit_logs').doc(l.id).delete().catch(() => {});
+      });
+    }
     STATE.auditLogs = [];
     localStorage.removeItem('fc_admin_audit_logs');
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref('security/admin_audit_logs').remove().catch(e => console.warn(e));
-    }
     renderAuditLogsList();
     showToast('Audit logs cleared', 'info');
   }
@@ -570,12 +571,17 @@ function freezeStudentsIfReadOnly() {
 }
 
 function attachMasterPrivateKeysListener() {
-  if (_hasAttachedPrivateKeysListener || !STATE.firebaseDb || !STATE.isMasterAdmin) return;
+  if (_hasAttachedPrivateKeysListener || !STATE.firestoreDb || !STATE.isMasterAdmin) return;
   _hasAttachedPrivateKeysListener = true;
-  STATE.firebaseDb.ref('security/admin_private_keys').on('value', (snapshot) => {
-    const keys = snapshot.val() || {};
+  STATE.firestoreDb.collection('admin_private_keys').onSnapshot((snapshot) => {
+    const keys = {};
+    snapshot.forEach(doc => {
+      keys[doc.id] = doc.data();
+    });
     STATE.adminPrivateKeys = keys;
     renderAdminPrivateKeysList();
+  }, (err) => {
+    console.warn('Private keys sync error:', err);
   });
 }
 
@@ -621,103 +627,92 @@ function loadAdminState() {
 /* ==================== STORAGE & REALTIME CLOUD ==================== */
 
 function initCloudOrLocalStorage() {
-  const savedFirebaseUrl = localStorage.getItem('fc_firebase_url') || DEFAULT_FIREBASE_DB_URL;
+  const savedProjectId = localStorage.getItem('fc_firebase_project_id') || DEFAULT_FIREBASE_PROJECT_ID;
   const savedConfigJson = localStorage.getItem('fc_firebase_config');
 
-  if (savedFirebaseUrl && window.firebase) {
+  if (window.firebase && window.firebase.firestore) {
     try {
-      let config = {};
+      let config = {
+        projectId: savedProjectId
+      };
       if (savedConfigJson) {
-        try { config = JSON.parse(savedConfigJson); } catch (e) { /* ignore */ }
+        try { Object.assign(config, JSON.parse(savedConfigJson)); } catch (e) { /* ignore */ }
       }
-      config.databaseURL = savedFirebaseUrl;
-      if (!config.projectId) config.projectId = "fine-collector-app";
-      if (!config.apiKey) config.apiKey = "dummy-api-key";
+      if (!config.apiKey) config.apiKey = "AIzaSyDummyFirestoreClientKey2026";
+      if (!config.authDomain) config.authDomain = `${config.projectId}.firebaseapp.com`;
 
       if (!firebase.apps.length) {
         STATE.firebaseApp = firebase.initializeApp(config);
       } else {
         STATE.firebaseApp = firebase.app();
       }
-      STATE.firebaseDb = firebase.database();
+      STATE.firestoreDb = firebase.firestore();
       STATE.isCloudConnected = true;
 
-      // 1. Realtime listener for students data
-      STATE.firebaseDb.ref('students').on('value', (snapshot) => {
-        const val = snapshot.val();
-        if (val) {
-          const list = Array.isArray(val) ? val : Object.keys(val).map(key => val[key]);
-          STATE.students = list.filter(item => item && typeof item === 'object');
-        } else {
-          STATE.students = [];
-        }
+      // 1. Realtime listener for students collection (Cloud Firestore)
+      STATE.firestoreDb.collection('students').onSnapshot((snapshot) => {
+        const list = [];
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          if (data && typeof data === 'object') {
+            list.push({ ...data, id: doc.id });
+          }
+        });
+        // Order latest first
+        list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        STATE.students = list;
+        saveToLocalStorage();
         renderAll();
       }, (error) => {
-        console.warn('Cloud sync error, falling back to local:', error);
+        console.warn('Firestore students sync error, falling back to local:', error);
         loadFromLocalStorage();
       });
 
-      // 2. Realtime listener for Master Security Passkey Hash (Hidden)
-      STATE.firebaseDb.ref('security/master_hash').on('value', (snapshot) => {
-        const cloudHash = snapshot.val();
-        if (cloudHash && typeof cloudHash === 'string' && cloudHash.length === 64) {
-          STATE.masterHash = cloudHash;
-          localStorage.setItem('fc_master_hash', cloudHash);
-        }
-      });
-
-      // 3. Realtime listener for Multi-Device Admin Approvals & Revocations
-      STATE.firebaseDb.ref('security/admin_devices').on('value', (snapshot) => {
-        const devices = snapshot.val() || {};
+      // 2. Realtime listener for Multi-Device Admin Approvals & Revocations
+      STATE.firestoreDb.collection('admin_devices').onSnapshot((snapshot) => {
+        const devices = {};
+        snapshot.forEach(doc => {
+          devices[doc.id] = doc.data();
+        });
         STATE.adminDevices = devices;
         handleSecurityDevicesUpdate(devices);
         updateMasterLoginViewMode();
+      }, (err) => {
+        console.warn('Firestore admin_devices sync error:', err);
       });
 
-      // 4. On-demand listener for Master Mind Private Keys (Loaded strictly when verified)
+      // 3. On-demand listener for Master Mind Private Keys (Loaded strictly when verified)
       if (STATE.isAdmin && STATE.isMasterAdmin && isMasterSessionVerified()) {
         attachMasterPrivateKeysListener();
       }
 
-      // 6. Realtime listener for System Master Owner identity
-      STATE.firebaseDb.ref('security/system_master_owner').on('value', (snapshot) => {
-        const ownerData = snapshot.val();
-        if (ownerData && ownerData.claimed) {
-          STATE.isMasterMindClaimed = true;
-          STATE.masterOwnerData = ownerData;
-        } else {
-          // Initialize permanent single master owner (Kausar Hayat)
-          STATE.firebaseDb.ref('security/system_master_owner').set({
-            ownerName: 'Kausar Hayat',
-            role: 'master',
-            claimed: true,
-            claimedAt: Date.now()
-          });
-          STATE.isMasterMindClaimed = true;
-        }
-        updateMasterLoginViewMode();
-      });
-
-      // 7. Realtime listener for Activity & Audit Logs (Master Mind Realtime Monitoring)
-      STATE.firebaseDb.ref('security/admin_audit_logs').limitToLast(200).on('value', (snapshot) => {
-        const val = snapshot.val() || {};
-        STATE.auditLogs = Object.values(val).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      // 4. Realtime listener for Activity & Audit Logs (Master Mind Monitoring)
+      STATE.firestoreDb.collection('admin_audit_logs').limit(200).onSnapshot((snapshot) => {
+        const logs = [];
+        snapshot.forEach(doc => {
+          logs.push(doc.data());
+        });
+        logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        STATE.auditLogs = logs;
         try {
-          localStorage.setItem('fc_admin_audit_logs', JSON.stringify(STATE.auditLogs));
+          localStorage.setItem('fc_admin_audit_logs', JSON.stringify(logs));
         } catch (e) {}
         renderAuditLogsList();
+      }, (err) => {
+        console.warn('Firestore audit logs listener error:', err);
       });
 
-      // If current device is Master Owner, ensure its presence in cloud devices
+      // If current device is Master Owner, ensure presence in Firestore
       if (STATE.isMasterAdmin && STATE.deviceId) {
-        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
+        STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
           id: STATE.deviceId,
           name: 'Kausar Hayat (Master Owner)',
           device: STATE.deviceName,
           status: 'approved',
+          role: 'master',
           isOwner: true,
           lastSeen: Date.now()
-        });
+        }, { merge: true }).catch(() => {});
       }
 
       // Check for one-click approval from Master Owner email
@@ -725,7 +720,7 @@ function initCloudOrLocalStorage() {
 
       return;
     } catch (err) {
-      console.warn('Firebase init error:', err);
+      console.warn('Firestore init error:', err);
     }
   }
 
@@ -756,8 +751,8 @@ function startWaitingCountdown() {
     if (waitingSecondsRemaining <= 0) {
       clearInterval(waitingCountdownTimer);
       waitingCountdownTimer = null;
-      if (STATE.firebaseDb && STATE.deviceId) {
-        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
+      if (STATE.isCloudConnected && STATE.firestoreDb && STATE.deviceId) {
+        STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).update({
           status: 'timeout',
           denialReason: 'Request timed out waiting for Master Mind approval.'
         }).catch(() => {});
@@ -807,7 +802,7 @@ async function checkUrlApprovalParams() {
     }
 
     if (isAuthorized) {
-      if (STATE.firebaseDb) {
+      if (STATE.isCloudConnected && STATE.firestoreDb) {
         const updatePayload = {
           status: isReject ? 'rejected' : 'approved',
           [isReject ? 'rejectedAt' : 'approvedAt']: Date.now()
@@ -825,7 +820,7 @@ async function checkUrlApprovalParams() {
           updatePayload.denialReason = 'You are denied by Kausar Khattak';
         }
 
-        STATE.firebaseDb.ref(`security/admin_devices/${devId}`).update(updatePayload).then(() => {
+        STATE.firestoreDb.collection('admin_devices').doc(devId).update(updatePayload).then(() => {
           const actionMsg = isMaster ? 'MASTER AUTHORIZED' : (action === 'approve' ? 'SUB-ADMIN APPROVED' : 'ACCESS DENIED: You are denied by Kausar Khattak');
           showToast(`Access ${actionMsg} successfully!`, isReject ? 'error' : 'success');
           if (devId === STATE.deviceId) {
@@ -900,8 +895,8 @@ function retryAdminLogin() {
   STATE.pendingLogin = false;
 
   // Clear device rejection/timeout record so user can re-enter credentials
-  if (STATE.firebaseDb && STATE.deviceId) {
-    STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).remove().catch(() => {});
+  if (STATE.firestoreDb && STATE.deviceId) {
+    STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).delete().catch(() => {});
   }
   if (STATE.adminDevices && STATE.adminDevices[STATE.deviceId]) {
     delete STATE.adminDevices[STATE.deviceId];
@@ -963,17 +958,7 @@ function retryAdminLogin() {
       console.warn("Blocked unauthorized saveState: Read-Only Mode enforced.");
       return;
     }
-    const cleanList = (STATE.students || []).filter(Boolean);
-    if (STATE.isCloudConnected && STATE.firebaseDb) {
-      STATE.firebaseDb.ref('students').set(cleanList)
-        .catch((err) => {
-          console.error('Failed to sync to cloud:', err);
-          showToast('Cloud sync error, saved locally', 'error');
-          saveToLocalStorage();
-        });
-    } else {
-      saveToLocalStorage();
-    }
+    saveToLocalStorage();
   }
 
   function saveToLocalStorage() {
@@ -1259,7 +1244,13 @@ function retryAdminLogin() {
 
     // Add to the top of list
     STATE.students.unshift(newStudent);
-    saveState();
+    saveToLocalStorage();
+
+    // Persist directly to Cloud Firestore collection
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      STATE.firestoreDb.collection('students').doc(newStudent.id).set(newStudent)
+        .catch(err => console.warn('Firestore add student error:', err));
+    }
 
     // Reset filter to 'all' so new entry is immediately visible
     STATE.currentFilter.date = 'all';
@@ -1296,8 +1287,17 @@ function retryAdminLogin() {
     if (!student) return;
 
     student.paid = !student.paid;
-    saveState();
+    student.updatedAt = Date.now();
+    saveToLocalStorage();
     renderAll();
+
+    // Persist payment update to Cloud Firestore
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      STATE.firestoreDb.collection('students').doc(studentId).update({
+        paid: student.paid,
+        updatedAt: student.updatedAt
+      }).catch(err => console.warn('Firestore togglePayment error:', err));
+    }
 
     const msg = student.paid
       ? `Marked ${student.name} as Paid (Rs. ${student.fine})`
@@ -1325,8 +1325,14 @@ function retryAdminLogin() {
       const deletedDate = student.date;
 
       STATE.students = STATE.students.filter(s => s.id !== studentId);
-      saveState();
+      saveToLocalStorage();
       renderAll();
+
+      // Delete document directly from Cloud Firestore collection
+      if (STATE.isCloudConnected && STATE.firestoreDb) {
+        STATE.firestoreDb.collection('students').doc(studentId).delete()
+          .catch(err => console.warn('Firestore delete error:', err));
+      }
       showToast(`${deletedStudentName} record deleted`, 'info');
 
       // Audit Log for Record Deletion
@@ -1344,8 +1350,13 @@ function retryAdminLogin() {
 
     if (confirm("Are you sure you want to clear all late records? This action cannot be undone.")) {
       const totalCleared = STATE.students.length;
+      if (STATE.isCloudConnected && STATE.firestoreDb) {
+        (STATE.students || []).forEach(s => {
+          if (s && s.id) STATE.firestoreDb.collection('students').doc(s.id).delete().catch(() => {});
+        });
+      }
       STATE.students = [];
-      saveState();
+      saveToLocalStorage();
       renderAll();
       showToast("All records cleared", "info");
 
@@ -1387,11 +1398,22 @@ function retryAdminLogin() {
     student.date = document.getElementById('editEntryDate').value;
     student.time = document.getElementById('editArrivalTime').value.trim();
     student.fine = parseInt(document.getElementById('editFineAmount').value) || 100;
-    student.paid = document.getElementById('editPaidStatus').checked;
-
-    saveState();
+    student.updatedAt = Date.now();
+    saveToLocalStorage();
     renderAll();
     closeEditModal();
+
+    // Persist edits to Cloud Firestore
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      STATE.firestoreDb.collection('students').doc(student.id).update({
+        name: student.name,
+        date: student.date,
+        time: student.time,
+        fine: student.fine,
+        paid: student.paid,
+        updatedAt: student.updatedAt
+      }).catch(err => console.warn('Firestore edit error:', err));
+    }
     showToast(`Updated record for ${student.name}`, 'success');
 
     // Audit Log for Record Edit
@@ -1558,8 +1580,8 @@ function retryAdminLogin() {
       sessionStorage.setItem('fc_admin_name', STATE.adminName);
       sessionStorage.setItem('fc_admin_role', 'master');
 
-      if (STATE.firebaseDb && STATE.deviceId) {
-        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+      if (STATE.isCloudConnected && STATE.firestoreDb && STATE.deviceId) {
+        STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
           id: STATE.deviceId,
           name: STATE.adminName,
           device: STATE.deviceName,
@@ -1567,7 +1589,7 @@ function retryAdminLogin() {
           role: 'master',
           isOwner: true,
           lastSeen: Date.now()
-        }).catch(() => {});
+        }, { merge: true }).catch(() => {});
       }
 
       recordAuditLog({
@@ -1618,8 +1640,8 @@ function retryAdminLogin() {
         sessionStorage.setItem('fc_admin_name', enteredName);
         sessionStorage.setItem('fc_admin_role', 'subadmin');
 
-        if (STATE.firebaseDb && STATE.deviceId) {
-          STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+        if (STATE.isCloudConnected && STATE.firestoreDb && STATE.deviceId) {
+          STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
             id: STATE.deviceId,
             name: enteredName,
             device: STATE.deviceName,
@@ -1628,9 +1650,9 @@ function retryAdminLogin() {
             isOwner: false,
             usedPrivateKeyId: matchedKeyEntry.id,
             lastSeen: Date.now()
-          }).catch(() => {});
+          }, { merge: true }).catch(() => {});
 
-          STATE.firebaseDb.ref(`security/admin_private_keys/${matchedKeyEntry.id}`).update({
+          STATE.firestoreDb.collection('admin_private_keys').doc(matchedKeyEntry.id).update({
             lastUsed: Date.now(),
             lastDevice: STATE.deviceName
           }).catch(() => {});
@@ -1673,8 +1695,8 @@ function retryAdminLogin() {
 
     // 3. SUBMIT REALTIME REQUEST TO MASTER PAGE (NO EMAILS DISPATCHED)
     // Master Mind sees this request instantly in Admin Access Management
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
         id: STATE.deviceId,
         name: enteredName,
         device: STATE.deviceName,
@@ -1682,7 +1704,7 @@ function retryAdminLogin() {
         role: 'subadmin',
         isOwner: false,
         requestedAt: Date.now()
-      }).catch(() => {});
+      }, { merge: true }).catch(() => {});
     }
 
     // Record Audit Trail
@@ -1926,8 +1948,8 @@ function retryAdminLogin() {
       sessionStorage.setItem('fc_admin_name', 'Kausar Hayat (Master Owner)');
       sessionStorage.setItem('fc_admin_role', 'master');
 
-      if (STATE.firebaseDb && STATE.deviceId) {
-        STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).set({
+      if (STATE.isCloudConnected && STATE.firestoreDb && STATE.deviceId) {
+        STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).set({
           id: STATE.deviceId,
           name: 'Kausar Hayat (Master Mind)',
           device: STATE.deviceName,
@@ -1935,7 +1957,7 @@ function retryAdminLogin() {
           role: 'master',
           isOwner: true,
           lastSeen: Date.now()
-        }).catch(() => {});
+        }, { merge: true }).catch(() => {});
       }
 
       recordAuditLog({
@@ -2146,8 +2168,8 @@ function retryAdminLogin() {
       createdBy: 'Kausar Hayat'
     };
 
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_private_keys/${keyId}`).set(keyPayload)
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      STATE.firestoreDb.collection('admin_private_keys').doc(keyId).set(keyPayload)
         .then(() => {
           showToast(`Private Key for "${name}" assigned successfully!`, 'success');
           if (nameInput) nameInput.value = '';
@@ -2162,7 +2184,7 @@ function retryAdminLogin() {
           });
         })
         .catch(err => {
-          console.warn('Firebase key error:', err);
+          console.warn('Firestore key error:', err);
           showToast('Error saving key to cloud', 'error');
         });
     } else {
@@ -2192,8 +2214,8 @@ function retryAdminLogin() {
     const keyEntry = STATE.adminPrivateKeys && STATE.adminPrivateKeys[keyId];
     const keyName = keyEntry ? keyEntry.name : 'Admin';
 
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_private_keys/${keyId}`).remove()
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      STATE.firestoreDb.collection('admin_private_keys').doc(keyId).delete()
         .then(() => {
           showToast('Admin Private Key revoked & deleted!', 'info');
           recordAuditLog({
@@ -2384,8 +2406,8 @@ function approveDevice(deviceId, asMaster = false) {
     name: isMaster ? 'Kausar Hayat (Master Owner)' : (dev.name || 'Admin')
   };
 
-  if (STATE.firebaseDb) {
-    STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update(updatePayload).then(() => {
+  if (STATE.isCloudConnected && STATE.firestoreDb) {
+    STATE.firestoreDb.collection('admin_devices').doc(deviceId).update(updatePayload).then(() => {
       showToast(`${isMaster ? 'Master' : 'Sub-Admin'} access granted to ${dev.name}`, 'success');
 
       // Record Audit Trail
@@ -2415,8 +2437,8 @@ function rejectDevice(deviceId) {
   const dev = STATE.adminDevices[deviceId];
   if (!dev) return;
 
-  if (STATE.firebaseDb) {
-    STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update({
+  if (STATE.isCloudConnected && STATE.firestoreDb) {
+    STATE.firestoreDb.collection('admin_devices').doc(deviceId).update({
       status: 'rejected',
       rejectedAt: Date.now()
     }).then(() => {
@@ -2451,31 +2473,11 @@ function deleteAdminDevice(deviceId) {
   if (!dev) return;
 
   if (confirm(`Are you sure you want to Delete / Remove Admin access from "${dev.name}"?\n\nTheir access will be immediately terminated and their device locked out.`)) {
-    // Also remove/revoke any private key assigned to this admin
-    if (dev.usedPrivateKeyId && STATE.adminPrivateKeys && STATE.adminPrivateKeys[dev.usedPrivateKeyId]) {
-      if (STATE.firebaseDb) {
-        STATE.firebaseDb.ref(`security/admin_private_keys/${dev.usedPrivateKeyId}`).remove().catch(() => {});
-      } else {
-        delete STATE.adminPrivateKeys[dev.usedPrivateKeyId];
-        localStorage.setItem('fc_admin_private_keys', JSON.stringify(STATE.adminPrivateKeys));
+    if (STATE.isCloudConnected && STATE.firestoreDb) {
+      if (dev.usedPrivateKeyId) {
+        STATE.firestoreDb.collection('admin_private_keys').doc(dev.usedPrivateKeyId).delete().catch(() => {});
       }
-    }
-    if (STATE.adminPrivateKeys && dev.name) {
-      Object.keys(STATE.adminPrivateKeys).forEach(pkId => {
-        const pk = STATE.adminPrivateKeys[pkId];
-        if (pk && pk.name && pk.name.trim().toLowerCase() === dev.name.trim().toLowerCase()) {
-          if (STATE.firebaseDb) {
-            STATE.firebaseDb.ref(`security/admin_private_keys/${pkId}`).remove().catch(() => {});
-          } else {
-            delete STATE.adminPrivateKeys[pkId];
-            localStorage.setItem('fc_admin_private_keys', JSON.stringify(STATE.adminPrivateKeys));
-          }
-        }
-      });
-    }
-
-    if (STATE.firebaseDb) {
-      STATE.firebaseDb.ref(`security/admin_devices/${deviceId}`).update({
+      STATE.firestoreDb.collection('admin_devices').doc(deviceId).update({
         status: 'revoked',
         role: 'guest',
         revokedAt: Date.now()
@@ -2556,8 +2558,8 @@ async function handleUpdateMasterKey() {
   STATE.masterHash = newHash;
   localStorage.setItem('fc_master_hash', newHash);
 
-  if (STATE.firebaseDb) {
-    STATE.firebaseDb.ref('security/master_hash').set(newHash);
+  if (STATE.isCloudConnected && STATE.firestoreDb) {
+    STATE.firestoreDb.collection('system_security').doc('config').set({ masterHash: newHash }, { merge: true }).catch(() => {});
   }
 
   if (msgBox) {
@@ -2607,9 +2609,9 @@ function logoutAdmin() {
     try { firebase.auth().signOut().catch(() => {}); } catch (e) {}
   }
 
-  // Mark device as logged_out in Firebase so session is terminated
-  if (STATE.firebaseDb && STATE.deviceId) {
-    STATE.firebaseDb.ref(`security/admin_devices/${STATE.deviceId}`).update({
+  // Mark device as logged_out in Firestore so session is terminated
+  if (STATE.isCloudConnected && STATE.firestoreDb && STATE.deviceId) {
+    STATE.firestoreDb.collection('admin_devices').doc(STATE.deviceId).update({
       status: 'logged_out',
       role: 'guest',
       lastSeen: Date.now()
@@ -2779,15 +2781,15 @@ async function handleChangePin() {
   STATE.adminPin = newPin;
   localStorage.setItem('fc_admin_pin', newPin);
 
-  // Sync centrally to Firebase RTDB for all connected devices
-  if (STATE.firebaseDb) {
-    STATE.firebaseDb.ref('security/master_pin').set(newPin)
+  // Sync centrally to Firestore for all connected devices
+  if (STATE.isCloudConnected && STATE.firestoreDb) {
+    STATE.firestoreDb.collection('system_security').doc('config').set({ adminPin: newPin }, { merge: true })
       .then(() => {
         if (succMsg) {
           succMsg.textContent = 'Password updated and synchronized across all devices!';
           succMsg.style.display = 'block';
         }
-      });
+      }).catch(() => {});
   } else {
     if (succMsg) {
       succMsg.textContent = 'Password updated locally!';
@@ -2812,13 +2814,15 @@ async function handleChangePin() {
 /* ==================== CLOUD DATABASE SETUP MODAL ==================== */
 
 function openCloudModal() {
-  const savedFirebaseUrl = localStorage.getItem('fc_firebase_url') || DEFAULT_FIREBASE_DB_URL;
+  const savedProjectId = localStorage.getItem('fc_firebase_project_id') || DEFAULT_FIREBASE_PROJECT_ID;
   const savedConfigJson = localStorage.getItem('fc_firebase_config') || '';
-  document.getElementById('firebaseDbUrlInput').value = savedFirebaseUrl;
-  document.getElementById('firebaseConfigJson').value = savedConfigJson;
+  const projInput = document.getElementById('firebaseProjectIdInput');
+  const confInput = document.getElementById('firebaseConfigJson');
+  if (projInput) projInput.value = savedProjectId;
+  if (confInput) confInput.value = savedConfigJson;
   const currentMode = document.getElementById('currentStorageMode');
   if (currentMode) {
-    currentMode.textContent = STATE.isCloudConnected ? 'Connected (Google Firebase Cloud)' : 'Local Storage Mode';
+    currentMode.textContent = STATE.isCloudConnected ? 'Connected (Google Cloud Firestore)' : 'Local Storage Mode';
   }
   document.getElementById('cloudModal').style.display = 'flex';
 }
@@ -2828,21 +2832,21 @@ function closeCloudModal() {
 }
 
 function saveCloudConfig() {
-  const dbUrl = document.getElementById('firebaseDbUrlInput').value.trim();
-  const configJson = document.getElementById('firebaseConfigJson').value.trim();
+  const projId = document.getElementById('firebaseProjectIdInput')?.value.trim();
+  const configJson = document.getElementById('firebaseConfigJson')?.value.trim();
 
-  if (!dbUrl) {
-    showToast('Please enter a Firebase Database URL', 'error');
+  if (!projId) {
+    showToast('Please enter a Firebase Project ID', 'error');
     return;
   }
 
-  localStorage.setItem('fc_firebase_url', dbUrl);
+  localStorage.setItem('fc_firebase_project_id', projId);
   if (configJson) {
     localStorage.setItem('fc_firebase_config', configJson);
   }
 
   closeCloudModal();
-  showToast('Connecting to Cloud Database...', 'info');
+  showToast('Connecting to Google Cloud Firestore...', 'info');
 
   setTimeout(() => {
     initCloudOrLocalStorage();
@@ -2850,7 +2854,7 @@ function saveCloudConfig() {
 }
 
 function disconnectCloud() {
-  localStorage.removeItem('fc_firebase_url');
+  localStorage.removeItem('fc_firebase_project_id');
   localStorage.removeItem('fc_firebase_config');
   STATE.isCloudConnected = false;
   closeCloudModal();

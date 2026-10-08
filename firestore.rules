@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Students / Late Fee Records Collection
+    match /students/{studentId} {
+      // 1. All visitors/students have read-only access
+      allow read: if true;
+      
+      // 2. Data validation on create/write (Admin operations)
+      allow create: if request.resource.data.keys().hasAll(['id', 'name', 'fine', 'date', 'paid'])
+                    && request.resource.data.name is string
+                    && request.resource.data.fine is number
+                    && request.resource.data.paid is bool;
+                    
+      allow update: if request.resource.data.name is string
+                    && request.resource.data.fine is number
+                    && request.resource.data.paid is bool;
+                    
+      // 3. Deletion allowed for admin actions
+      allow delete: if true;
+    }
+    
+    // Admin Devices & Approvals
+    match /admin_devices/{deviceId} {
+      allow read, write: if true;
+    }
+    
+    // Append-Only Activity & Audit Logs (Tamper-proof)
+    match /admin_audit_logs/{logId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false; // Cannot modify or delete logs once recorded
+    }
+    
+    // Admin 4-Digit Private Keys
+    match /admin_private_keys/{keyId} {
+      allow read, write: if true;
+    }
+    
+    // System Security metadata
+    match /system_security/{docId} {
+      allow read, write: if true;
+    }
+  }
+}
