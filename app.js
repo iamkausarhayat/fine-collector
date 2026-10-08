@@ -579,6 +579,30 @@ function attachMasterPrivateKeysListener() {
   });
 }
 
+/* ==================== INACTIVITY AUTO-LOCK & SECURITY WATCHDOG ==================== */
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 Minutes
+let _inactivityTimer = null;
+
+function resetInactivityTimer() {
+  if (_inactivityTimer) {
+    clearTimeout(_inactivityTimer);
+    _inactivityTimer = null;
+  }
+  if (STATE.isAdmin) {
+    _inactivityTimer = setTimeout(() => {
+      if (STATE.isAdmin) {
+        logoutAdmin();
+        showToast('⚠️ Session auto-locked after 10 minutes of inactivity for your security.', 'error');
+      }
+    }, INACTIVITY_TIMEOUT_MS);
+  }
+}
+
+// User activity listener for resetting the inactivity timer
+['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+  window.addEventListener(evt, resetInactivityTimer, { passive: true });
+});
+
 /* ==================== ADMIN STATE ==================== */
 
 function loadAdminState() {
@@ -2637,6 +2661,10 @@ function logoutAdmin() {
   STATE.isMasterAdmin = false;
   STATE.adminRole = 'guest';
   STATE.adminName = '';
+  if (_inactivityTimer) {
+    clearTimeout(_inactivityTimer);
+    _inactivityTimer = null;
+  }
   closeAdminManagementModal();
   updateAdminUI();
   renderAll();
@@ -2644,6 +2672,7 @@ function logoutAdmin() {
 }
 
 function updateAdminUI() {
+  resetInactivityTimer();
   const adminBanner = document.getElementById('adminBanner');
   const adminEntryCard = document.getElementById('adminEntryCard');
   const adminBtnText = document.getElementById('adminBtnText');
