@@ -121,6 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initCloudOrLocalStorage();
   renderAll();
   initEventListeners();
+  setupRuntimeIntegrityShield();
 });
 
 function initEventListeners() {
@@ -504,7 +505,11 @@ function setMasterSessionVerified() {
 }
 
 function isMasterSessionVerified() {
-  return !!_masterSessionToken && STATE.isAdmin === true && STATE.isMasterAdmin === true && STATE.adminRole === 'master';
+  return typeof _masterSessionToken === 'string' &&
+         _masterSessionToken.startsWith('master_sig_') &&
+         STATE.isAdmin === true &&
+         STATE.isMasterAdmin === true &&
+         STATE.adminRole === 'master';
 }
 
 function checkMasterLockout() {
@@ -546,9 +551,14 @@ function guardMasterRights(actionName = 'this operation') {
 }
 
 function isAuthorizedAdminSession() {
-  const hasMasterSig = isMasterSessionVerified();
-  const isApprovedSession = STATE.isAdmin === true && (STATE.adminRole === 'master' || STATE.adminRole === 'subadmin');
-  return (hasMasterSig || isApprovedSession);
+  if (STATE.isAdmin !== true) return false;
+  if (STATE.isMasterAdmin === true || STATE.adminRole === 'master') {
+    return isMasterSessionVerified();
+  }
+  if (STATE.adminRole === 'subadmin') {
+    return !!STATE.deviceId && !!STATE.adminName;
+  }
+  return false;
 }
 
 function guardAdminRights(actionName = 'this operation') {
@@ -1100,9 +1110,11 @@ function retryAdminLogin() {
 
     if (!tbody) return;
 
+    const isVerifiedAdmin = isAuthorizedAdminSession();
+
     // Toggle admin column visibility
     adminCols.forEach(col => {
-      col.style.display = STATE.isAdmin ? 'table-cell' : 'none';
+      col.style.display = isVerifiedAdmin ? 'table-cell' : 'none';
     });
 
     const list = getFilteredStudents();
@@ -1141,9 +1153,9 @@ function retryAdminLogin() {
       const isOverTen = timeStr.includes('8:10+') || timeStr.includes('10+');
       const timeBadgeClass = isOverTen ? 'badge-time badge-time-late' : 'badge-time';
 
-      // Status display: If admin, interactive tick button. If student, clean badge.
+      // Status display: If verified admin, interactive toggle button. If visitor, strictly read-only pill.
       let statusHtml = '';
-      if (STATE.isAdmin) {
+      if (isVerifiedAdmin) {
         statusHtml = `
         <button class="btn-toggle-payment ${student.paid ? 'is-paid' : 'is-unpaid'}" 
                 onclick="togglePayment('${student.id}')"
@@ -1161,8 +1173,8 @@ function retryAdminLogin() {
       `;
       }
 
-      // Admin action buttons (Edit & Delete)
-      const adminActionsHtml = STATE.isAdmin ? `
+      // Admin action buttons (Edit & Delete): Strictly rendered only for verified sessions
+      const adminActionsHtml = isVerifiedAdmin ? `
       <td class="admin-col">
         <div class="table-actions">
           <button class="btn-icon" onclick="openEditModal('${student.id}')" title="Edit Entry">
@@ -1414,7 +1426,7 @@ function retryAdminLogin() {
   }
 
   function openEditModal(studentId) {
-    if (!STATE.isAdmin) return;
+    if (!guardAdminRights('editing student record')) return;
 
     const student = STATE.students.find(s => s.id === studentId);
     if (!student) return;
@@ -1434,6 +1446,8 @@ function retryAdminLogin() {
   }
 
   function saveEditedEntry() {
+    if (!guardAdminRights('saving edited student record')) return;
+
     const id = document.getElementById('editEntryId').value;
     const student = STATE.students.find(s => s.id === id);
     if (!student) return;
@@ -2664,6 +2678,7 @@ function logoutAdmin() {
     }).catch(() => {});
   }
 
+  _masterSessionToken = null;
   STATE.isAdmin = false;
   STATE.isMasterAdmin = false;
   STATE.adminRole = 'guest';
@@ -2672,6 +2687,9 @@ function logoutAdmin() {
     clearTimeout(_inactivityTimer);
     _inactivityTimer = null;
   }
+  try {
+    sessionStorage.clear();
+  } catch (e) {}
   closeAdminManagementModal();
   updateAdminUI();
   renderAll();
@@ -2689,19 +2707,22 @@ function updateAdminUI() {
   const btnManageAdmins = document.getElementById('btnManageAdmins');
   const btnChangePin = document.getElementById('btnChangePin');
   const btnClearAll = document.getElementById('btnClearAllRecords');
+  const headerActiveCount = document.getElementById('headerActiveAdminsCount');
 
-  if (STATE.isAdmin) {
+  const isVerifiedAdmin = isAuthorizedAdminSession();
+  const isVerifiedMaster = isMasterSessionVerified();
+
+  if (isVerifiedAdmin) {
     if (adminBanner) adminBanner.style.display = 'flex';
     if (adminEntryCard) adminEntryCard.style.display = 'block';
     if (adminToggleBtn) adminToggleBtn.classList.add('logged-in');
 
-    if (STATE.isMasterAdmin) {
+    if (isVerifiedMaster) {
       if (adminBtnText) adminBtnText.textContent = '👑 Master Admin';
       if (adminRoleBadge) {
         adminRoleBadge.className = 'admin-role-tag role-master';
         adminRoleBadge.innerHTML = '<i class="fa-solid fa-crown"></i> Master Admin (Owner)';
       }
-      const headerActiveCount = document.getElementById('headerActiveAdminsCount');
       if (headerActiveCount) headerActiveCount.style.display = 'inline-flex';
       if (adminBannerDesc) {
         adminBannerDesc.textContent = 'Full Master Access: Add/edit records, manage admins, and change Admin Password.';
@@ -2715,23 +2736,84 @@ function updateAdminUI() {
         adminRoleBadge.className = 'admin-role-tag role-subadmin';
         adminRoleBadge.innerHTML = '<i class="fa-solid fa-shield"></i> Authorized Sub-Admin';
       }
-      const headerActiveCount = document.getElementById('headerActiveAdminsCount');
       if (headerActiveCount) headerActiveCount.style.display = 'none';
       if (adminBannerDesc) {
         adminBannerDesc.textContent = 'Sub-Admin Access: Authorized to add late entries and update payment status.';
       }
       if (btnManageAdmins) btnManageAdmins.style.display = 'none';
-      if (btnChangePin) btnChangePin.style.display = 'none'; // Only Master can change PIN
+      if (btnChangePin) btnChangePin.style.display = 'none';
       if (btnClearAll) btnClearAll.style.display = 'none';
     }
   } else {
+    // Strictly unauthenticated guest mode
+    STATE.isAdmin = false;
+    STATE.isMasterAdmin = false;
+    STATE.adminRole = 'guest';
+
     if (adminBanner) adminBanner.style.display = 'none';
-    const headerActiveCount = document.getElementById('headerActiveAdminsCount');
     if (headerActiveCount) headerActiveCount.style.display = 'none';
     if (adminEntryCard) adminEntryCard.style.display = 'none';
+    if (btnManageAdmins) btnManageAdmins.style.display = 'none';
+    if (btnChangePin) btnChangePin.style.display = 'none';
+    if (btnClearAll) btnClearAll.style.display = 'none';
     if (adminBtnText) adminBtnText.textContent = 'Admin Login';
     if (adminToggleBtn) adminToggleBtn.classList.remove('logged-in');
   }
+}
+
+/* ==================== RUNTIME ANTI-TAMPER INTEGRITY WATCHDOG ==================== */
+function setupRuntimeIntegrityShield() {
+  function enforceVisualIntegrity() {
+    if (!isAuthorizedAdminSession()) {
+      const banner = document.getElementById('adminBanner');
+      const entryCard = document.getElementById('adminEntryCard');
+      const manageModal = document.getElementById('adminManageModal');
+      const adminCols = document.querySelectorAll('.admin-col');
+
+      let tampered = false;
+      if (banner && banner.style.display && banner.style.display !== 'none') {
+        banner.style.display = 'none';
+        tampered = true;
+      }
+      if (entryCard && entryCard.style.display && entryCard.style.display !== 'none') {
+        entryCard.style.display = 'none';
+        tampered = true;
+      }
+      if (manageModal && manageModal.style.display && manageModal.style.display !== 'none') {
+        manageModal.style.display = 'none';
+        tampered = true;
+      }
+      adminCols.forEach(col => {
+        if (col.style.display && col.style.display !== 'none') {
+          col.style.display = 'none';
+          tampered = true;
+        }
+      });
+
+      if (tampered) {
+        console.warn('[Security Shield] Client-side DOM tampering neutralized.');
+      }
+    }
+  }
+
+  // 1. MutationObserver on sensitive elements
+  if (window.MutationObserver) {
+    const observer = new MutationObserver(() => {
+      enforceVisualIntegrity();
+    });
+    const targetNodes = [
+      document.getElementById('adminBanner'),
+      document.getElementById('adminEntryCard'),
+      document.getElementById('adminManageModal')
+    ].filter(Boolean);
+
+    targetNodes.forEach(node => {
+      observer.observe(node, { attributes: true, attributeFilter: ['style', 'class'] });
+    });
+  }
+
+  // 2. Continuous interval watchdog (every 1000ms)
+  setInterval(enforceVisualIntegrity, 1000);
 }
 
 function togglePinVisibility(inputId) {
