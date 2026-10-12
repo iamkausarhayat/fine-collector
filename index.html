@@ -24,7 +24,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
 
-  <link rel="stylesheet" href="style.css?v=20261008_sec1">
+  <link rel="stylesheet" href="style.css?v=20261012_v2">
 </head>
 <body>
 
@@ -79,9 +79,9 @@
           <i class="fa-solid fa-users-gear"></i> Manage Admins
           <span class="badge-pending" id="manageAdminsPendingBadge" style="display: none;">0</span>
         </button>
-        <!-- Master Password Change (Firebase Auth) -->
-        <button class="btn-sm" id="btnChangePin" onclick="openPinModal()" title="Change Account Password">
-          <i class="fa-solid fa-key"></i> Change Password
+        <!-- Master PIN Change (Master verified) -->
+        <button class="btn-sm" id="btnChangePin" onclick="openPinModal()" title="Change Master Admin PIN">
+          <i class="fa-solid fa-key"></i> Change PIN
         </button>
         <!-- Cloud DB Setup -->
         <button class="btn-sm" onclick="openCloudModal()" title="Cloud Database Setup">
@@ -286,7 +286,8 @@
 
   <!-- ==================== MODALS ==================== -->
 
-  <!-- Backend Firebase Auth Admin Login Modal -->
+  <!-- Multi-Device Admin Login Modal -->
+  <!-- Multi-Device Admin Login Modal -->
   <div class="modal-overlay" id="adminModal" onclick="handleModalOverlayClick(event, 'adminModal')">
     <div class="modal-box modal-md">
       <div class="modal-header">
@@ -294,101 +295,183 @@
         <button class="modal-close" onclick="closeAdminModal()">&times;</button>
       </div>
 
-      <!-- Navigation Tabs: Sign In / Request Access -->
-      <div class="modal-nav-tabs" style="display: flex; margin-bottom: 1.25rem;">
-        <button class="modal-tab active" id="tabAuthLoginBtn" onclick="switchLoginAuthTab('login')">
-          <i class="fa-solid fa-right-to-bracket"></i> Sign In
-        </button>
-        <button class="modal-tab" id="tabAuthRequestBtn" onclick="switchLoginAuthTab('request')">
-          <i class="fa-solid fa-user-plus"></i> Request Access
-        </button>
-      </div>
-
       <div class="modal-body">
-        <!-- VIEW 1: SIGN IN VIEW (Firebase Auth Email + Password) -->
-        <div id="loginViewSignIn">
+
+        <!-- VIEW 1: ADMIN LOGIN & PERMISSION PORTAL -->
+        <div id="loginViewPin">
           <p class="modal-desc" style="color: #cbd5e1; font-size: 0.88rem; line-height: 1.5; margin-bottom: 1.1rem;">
-            Sign in with your verified Firebase Admin credentials. Access privileges and roles are strictly verified on the Firebase server.
+            Enter your Full Name and Admin Password (4545). If Master Mind has assigned you a 4-digit Private Key, you will log in instantly. Otherwise, your access request will be sent to Master Mind for direct approval.
           </p>
 
-          <form id="adminLoginForm" onsubmit="event.preventDefault(); handleAdminLogin();">
-            <div class="form-group mb-3">
-              <label for="adminLoginEmailInput"><i class="fa-solid fa-envelope"></i> Admin Email</label>
-              <input 
-                type="email" 
-                id="adminLoginEmailInput" 
-                placeholder="e.g. iamkausarhayat100@gmail.com" 
-                autocomplete="email"
-                required
-              >
-            </div>
+          <div class="form-group mb-3">
+            <label for="adminLoginNameInput"><i class="fa-solid fa-user-shield"></i> Your Full Name</label>
+            <input 
+              type="text" 
+              id="adminLoginNameInput" 
+              placeholder="e.g. kausar or Ali Khan" 
+              autocomplete="name"
+              required
+              onkeypress="if(event.key === 'Enter') document.getElementById('adminPinInput').focus()"
+            >
+            <span class="input-helper">Note: Exact spelling matches your assigned Private Key</span>
+          </div>
 
-            <div class="form-group mb-3">
-              <label for="adminLoginPasswordInput"><i class="fa-solid fa-lock"></i> Password</label>
-              <div class="pin-input-wrap">
-                <input 
-                  type="password" 
-                  id="adminLoginPasswordInput" 
-                  placeholder="Enter your password" 
-                  autocomplete="current-password"
-                  required
-                >
-                <button type="button" class="btn-eye" onclick="togglePinVisibility('adminLoginPasswordInput')">
-                  <i class="fa-solid fa-eye" id="adminPasswordEyeIcon"></i>
-                </button>
+          <div class="form-group mb-3">
+            <label for="adminPinInput"><i class="fa-solid fa-lock"></i> Sub-Admin Password</label>
+            <div class="pin-input-wrap">
+              <input 
+                type="password" 
+                id="adminPinInput" 
+                maxlength="30" 
+                placeholder="Enter Sub-Admin Password" 
+                autocomplete="off"
+                onkeypress="if(event.key === 'Enter') handleAdminLogin()"
+              >
+              <button type="button" class="btn-eye" onclick="togglePinVisibility('adminPinInput')">
+                <i class="fa-solid fa-eye" id="adminPinEyeIcon"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="adminPrivateKeyInput">
+              <i class="fa-solid fa-key" style="color: #818cf8;"></i> 4-Digit Private Key 
+              <span style="font-weight: 400; color: #94a3b8; font-size: 0.78rem;">(Optional)</span>
+            </label>
+            <div class="pin-input-wrap">
+              <input 
+                type="password" 
+                id="adminPrivateKeyInput" 
+                maxlength="4" 
+                inputmode="numeric" 
+                placeholder="••••" 
+                style="letter-spacing: 5px; font-size: 1.2rem; text-align: center;"
+                onkeypress="if(event.key === 'Enter') handleAdminLogin()"
+              >
+              <button type="button" class="btn-eye" onclick="togglePinVisibility('adminPrivateKeyInput')">
+                <i class="fa-solid fa-eye" id="adminPrivateKeyEyeIcon"></i>
+              </button>
+            </div>
+            <span class="input-helper">Enter assigned 4-digit key, or leave blank to request Master Mind approval</span>
+          </div>
+
+          <div id="loginErrorMsg" class="error-msg" style="display: none;"></div>
+          
+          <div class="modal-actions-row">
+            <button class="btn btn-secondary" onclick="closeAdminModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="handleAdminLogin()">
+              <i class="fa-solid fa-shield-halved"></i> Sign In / Request Access
+            </button>
+          </div>
+
+          <div class="master-switch-footer" style="margin-top: 1.25rem; text-align: center; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
+            <a href="javascript:void(0)" onclick="switchLoginTab('master')" class="link-master-switch" style="color: #fbbf24; font-size: 0.84rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+              <i class="fa-solid fa-crown"></i> Master Mind (Kausar Hayat) Login
+            </a>
+          </div>
+        </div>
+
+        <!-- VIEW 2: WAITING FOR APPROVAL SCREEN (LIVE REALTIME WITH COUNTDOWN) -->
+        <div id="pinStepWaiting" style="display: none;">
+          <div class="approval-waiting-card">
+            <div class="spinner-pulse"></div>
+            <h4 id="waitTitle" style="color: #60a5fa; font-weight: 800; font-size: 1.25rem; margin-bottom: 0.35rem;">
+              <i class="fa-solid fa-brain"></i> Wait for Master Mind Permission
+            </h4>
+            <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 0.75rem;">
+              Authorization request submitted to <strong>Master Mind (Kausar Hayat)</strong>.
+            </p>
+
+            <!-- COUNTDOWN TIMER DISPLAY -->
+            <div class="waiting-countdown-box" style="margin: 0.75rem 0 1.25rem; padding: 1.1rem; border-radius: 12px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); text-align: center;">
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; color: #93c5fd; font-weight: 700; margin-bottom: 0.25rem;">
+                <i class="fa-regular fa-clock"></i> Permission Countdown
+              </div>
+              <div id="waitCountdownTimer" style="font-size: 2.3rem; font-weight: 900; font-family: monospace; color: #38bdf8; text-shadow: 0 0 14px rgba(56, 189, 248, 0.55); letter-spacing: 2px;">
+                05:00
+              </div>
+              <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 0.35rem;">
+                Waiting for Master Mind (Kausar Hayat) to allow access from Master Page...
               </div>
             </div>
 
-            <div id="loginErrorMsg" class="error-msg" style="display: none;"></div>
-
-            <div class="modal-actions-row">
-              <button type="button" class="btn btn-secondary" onclick="closeAdminModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary" id="btnAdminSignIn">
-                <i class="fa-solid fa-right-to-bracket"></i> Sign In
-              </button>
+            <div class="waiting-details-box">
+              <div><span>Applicant:</span> <strong id="waitRequesterName">-</strong></div>
+              <div><span>Requested Role:</span> <strong id="waitRoleBadge" style="color: #38bdf8;">-</strong></div>
+              <div><span>Device:</span> <span id="waitDeviceName">-</span></div>
+              <div><span>Status:</span> <span class="badge-waiting"><i class="fa-solid fa-circle-notch fa-spin"></i> Awaiting Master Mind</span></div>
             </div>
+            <p class="waiting-live-note">
+              <i class="fa-solid fa-bolt"></i> Live Real-time Sync Active: As soon as Master Mind clicks "Allow Access", this screen will instantly unlock!
+            </p>
+          </div>
 
-            <div style="margin-top: 1.1rem; text-align: center; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
-              <a href="javascript:void(0)" onclick="handleForgotPassword()" style="color: #38bdf8; font-size: 0.84rem; text-decoration: none; font-weight: 500;">
-                <i class="fa-solid fa-key"></i> Forgot Password? Reset via Email
-              </a>
-            </div>
-          </form>
+          <div class="modal-actions-row justify-center mt-3">
+            <button class="btn btn-secondary" onclick="closeAdminModal()">Close Window</button>
+          </div>
         </div>
 
-        <!-- VIEW 2: REQUEST ACCESS VIEW (New Admin Applicant) -->
-        <div id="loginViewRequestAccess" style="display: none;">
-          <p class="modal-desc" style="color: #cbd5e1; font-size: 0.88rem; line-height: 1.5; margin-bottom: 1.1rem;">
-            New Sub-Admin applicant? Submit your access request to Master Mind (Kausar Hayat).
-          </p>
+        <!-- VIEW 4: DENIED / ACCESS REJECTED SCREEN -->
+        <div id="pinStepDenied" style="display: none;">
+          <div class="approval-waiting-card" style="border-color: rgba(244, 63, 94, 0.5); background: linear-gradient(145deg, rgba(244, 63, 94, 0.16), rgba(15, 23, 42, 0.95));">
+            <div style="width: 56px; height: 56px; border-radius: 56px; background: rgba(244, 63, 94, 0.22); color: #fb7185; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto 1rem; border: 1px solid rgba(244, 63, 94, 0.45);">
+              <i class="fa-solid fa-ban"></i>
+            </div>
+            <h4 style="color: #fb7185; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;" id="denialHeading">You are denied by Kausar Khattak</h4>
+            <p id="denialMessage" style="color: #f1f5f9; font-size: 0.95rem; line-height: 1.6; font-weight: 600;">You are denied by Kausar Khattak</p>
+            <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem;" id="denialSubText">Access request was declined by the system owner.</p>
+          </div>
+          <div class="modal-actions-row justify-center mt-3" style="gap: 0.75rem;">
+            <button class="btn btn-secondary" onclick="closeAdminModal()">Close</button>
+            <button class="btn btn-primary" onclick="retryAdminLogin()">
+              <i class="fa-solid fa-rotate-left"></i> Try Again / Enter Key
+            </button>
+          </div>
+        </div>
 
-          <form id="adminRequestForm" onsubmit="event.preventDefault(); handleRequestAccess();">
-            <div class="form-group mb-3">
-              <label for="requestAccessNameInput"><i class="fa-solid fa-user"></i> Full Name</label>
-              <input type="text" id="requestAccessNameInput" placeholder="e.g. Ali Khan" required>
+        <!-- VIEW 3: MASTER OWNER DIRECT LOGIN (KAUSAR HAYAT ONLY) -->
+        <div id="loginViewMaster" style="display: none;">
+          
+          <!-- State A: Form for verified Kausar Hayat or first-time setup -->
+          <div class="owner-login-card" id="masterLoginFormCard">
+            <div class="owner-avatar-icon">
+              <i class="fa-solid fa-crown"></i>
+            </div>
+            <h4>Master Mind Verification</h4>
+            <p>Direct login for System Owner (Kausar Hayat). Protected by high-iteration cryptographic key stretching & rate limiting.</p>
+            
+
+
+            <div class="form-group mb-3 text-left">
+              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key" style="color: #fbbf24;"></i> Secret Master Password</label>
+              <div class="pin-input-wrap">
+                <input 
+                  type="password" 
+                  id="masterOwnerKeyInput" 
+                  placeholder="Enter Secret Master Password" 
+                  autocomplete="current-password"
+                  onkeypress="if(event.key === 'Enter') handleMasterOwnerLogin()"
+                >
+                <button type="button" class="btn-eye" onclick="togglePinVisibility('masterOwnerKeyInput')">
+                  <i class="fa-solid fa-eye" id="masterOwnerKeyEyeIcon"></i>
+                </button>
+              </div>
+              <span class="input-helper">Server-side authenticated via Google Firebase</span>
             </div>
 
-            <div class="form-group mb-3">
-              <label for="requestAccessEmailInput"><i class="fa-solid fa-envelope"></i> Email Address</label>
-              <input type="email" id="requestAccessEmailInput" placeholder="applicant@example.com" required>
-            </div>
-
-            <div class="form-group mb-3">
-              <label for="requestAccessReasonInput"><i class="fa-solid fa-comment"></i> Notes / Class Section</label>
-              <input type="text" id="requestAccessReasonInput" placeholder="e.g. Late fee management for Class 8:00 AM">
-            </div>
-
-            <div id="requestAccessMsg" class="error-msg" style="display: none;"></div>
-            <div id="requestAccessSuccessMsg" class="success-msg" style="display: none;"></div>
+            <div id="masterLoginErrorMsg" class="error-msg" style="display: none;"></div>
+            <div id="masterLockoutCountdown" style="display: none; color: #f43f5e; font-size: 0.85rem; font-weight: 700; text-align: center; margin-bottom: 0.75rem;"></div>
 
             <div class="modal-actions-row">
-              <button type="button" class="btn btn-secondary" onclick="switchLoginAuthTab('login')">Back to Sign In</button>
-              <button type="submit" class="btn btn-primary" id="btnSubmitRequest">
-                <i class="fa-solid fa-paper-plane"></i> Submit Request
+              <button class="btn btn-secondary" onclick="switchLoginTab('pin')">Back</button>
+              <button class="btn btn-gold" id="btnVerifyMasterMind" onclick="handleMasterOwnerLogin()">
+                <i class="fa-solid fa-crown"></i> Verify as Master Mind
               </button>
             </div>
-          </form>
+          </div>
+
         </div>
+
       </div>
     </div>
   </div>
@@ -404,31 +487,37 @@
         <button class="modal-close" onclick="closeAdminManagementModal()">&times;</button>
       </div>
 
-      <!-- Locked Placeholder for unverified access -->
+      <!-- Locked Placeholder for unverified/inspect bypass attempts -->
       <div id="adminManageLockedPlaceholder" style="display: block; text-align: center; padding: 3.5rem 1.5rem;">
         <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(245, 158, 11, 0.15); color: #fbbf24; display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 1.25rem; border: 1px solid rgba(245, 158, 11, 0.35); box-shadow: 0 0 25px rgba(245, 158, 11, 0.2);">
           <i class="fa-solid fa-lock"></i>
         </div>
         <h4 style="color: #f1f5f9; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;">Master Mind Verification Required</h4>
         <p style="color: #94a3b8; font-size: 0.9rem; max-width: 440px; margin: 0 auto 1.5rem; line-height: 1.6;">
-          This area is strictly restricted to system owner <strong>Kausar Hayat</strong>. Unauthenticated access attempts are blocked by Firestore security rules.
+          This area is strictly restricted to system owner <strong>Kausar Hayat</strong>. Unauthenticated access attempts are blocked and logged.
         </p>
-        <button class="btn btn-gold" onclick="closeAdminManagementModal(); openAdminModal();">
-          <i class="fa-solid fa-crown"></i> Sign In as Master Mind
+        <button class="btn btn-gold" onclick="closeAdminManagementModal(); switchLoginTab('master'); document.getElementById('adminModal').style.display = 'flex';">
+          <i class="fa-solid fa-crown"></i> Authenticate as Master Mind
         </button>
       </div>
 
-      <!-- Manage Tabs (Shown when verified as Master) -->
+      <!-- Manage Tabs (Hidden until authenticated) -->
       <div class="modal-nav-tabs" id="adminManageTabs" style="display: none;">
         <button class="modal-tab active" id="tabManagePendingBtn" onclick="switchManageTab('pending')">
           <i class="fa-solid fa-clock-rotate-left"></i> Pending Requests
           <span class="badge-pending-count" id="manageTabPendingBadge">0</span>
         </button>
         <button class="modal-tab" id="tabManageApprovedBtn" onclick="switchManageTab('approved')">
-          <i class="fa-solid fa-user-check"></i> Authorized Admins (<span id="manageTabApprovedBadge">0</span>)
+          <i class="fa-solid fa-user-check"></i> Active Admins (<span id="manageTabApprovedBadge">0</span>)
+        </button>
+        <button class="modal-tab" id="tabManageKeysBtn" onclick="switchManageTab('keys')">
+          <i class="fa-solid fa-key"></i> Private Keys (<span id="manageTabKeysBadge">0</span>)
         </button>
         <button class="modal-tab" id="tabManageAuditBtn" onclick="switchManageTab('audit')">
           <i class="fa-solid fa-receipt"></i> Activity & Audit Logs (<span id="manageTabAuditBadge">0</span>)
+        </button>
+        <button class="modal-tab" id="tabManageSecurityBtn" onclick="switchManageTab('security')">
+          <i class="fa-solid fa-lock"></i> Password & Security
         </button>
       </div>
 
@@ -436,79 +525,136 @@
         
         <!-- Tab 1: Pending Access Requests -->
         <div id="manageViewPending">
+          <!-- Permission Request Alert Box inside Master Page only -->
           <div class="permission-alert-banner" id="permissionAlertBanner" style="display: none; margin-bottom: 1.25rem;">
             <div class="alert-banner-left">
               <div class="alert-pulse-ring">
                 <i class="fa-solid fa-bell"></i>
               </div>
               <div class="alert-banner-info">
-                <span class="alert-banner-title">New Access Request!</span>
-                <span class="alert-banner-desc" id="permissionAlertDesc">A user requested Sub-Admin access</span>
+                <span class="alert-banner-title">New Admin Permission Request!</span>
+                <span class="alert-banner-desc" id="permissionAlertDesc">A user wants admin access</span>
               </div>
+            </div>
+            <div class="alert-banner-actions">
+              <button class="btn-xs btn-banner-approve" onclick="quickApproveFromBanner()" title="Grant Admin Access">
+                <i class="fa-solid fa-check"></i> Allow Access
+              </button>
+              <button class="btn-xs btn-banner-reject" onclick="quickRejectFromBanner()" title="Reject Request">
+                <i class="fa-solid fa-xmark"></i> Reject
+              </button>
             </div>
           </div>
 
           <p class="modal-section-desc">
-            Users currently requesting admin access. After creating their account in Firebase Authentication, authorize their UID here to grant access.
+            Users currently requesting admin access with 4545. Click <strong>"Allow Access"</strong> to grant instant Sub-Admin access, or <strong>"Assign Key"</strong> to generate a unique Private Key for their exact name.
           </p>
-          <div id="pendingRequestsList" class="devices-list-container"></div>
+          <div id="pendingRequestsList" class="devices-list-container">
+            <!-- Dynamically populated -->
+          </div>
           <div id="emptyPendingRequests" class="empty-requests-box" style="display: none;">
             <i class="fa-regular fa-circle-check"></i>
             <h4>No Pending Requests</h4>
-            <p>All access requests have been reviewed.</p>
+            <p>All admin login requests have been reviewed.</p>
           </div>
         </div>
 
-        <!-- Tab 2: Authorized Active Admins (Stored in Firestore 'admins' Collection) -->
+        <!-- Tab 2: Approved Active Admins (Delete / Remove Capability) -->
         <div id="manageViewApproved" style="display: none;">
           <p class="modal-section-desc">
-            All users currently authorized in the server <code>admins</code> collection. Only Master Admin can authorize or revoke admin accounts.
+            All users currently authorized as Sub-Admins. You can assign them Private Keys or click <strong>"Delete / Remove Admin"</strong> to instantly revoke access and lock them out.
+          </p>
+          <div id="approvedAdminsList" class="devices-list-container">
+            <!-- Dynamically populated -->
+          </div>
+          <div id="emptyApprovedAdmins" class="empty-requests-box" style="display: none;">
+            <i class="fa-solid fa-user-shield"></i>
+            <h4>No Sub-Admins Currently Active</h4>
+            <p>Only your Master Admin device is authorized.</p>
+          </div>
+        </div>
+
+        <!-- Tab 3: Password & Security Settings -->
+        <div id="manageViewSecurity" style="display: none;">
+          <div class="security-card-box">
+            <h4><i class="fa-solid fa-shield-halved"></i> Master Mind System Security</h4>
+            <p>Direct owner authority (Kausar Hayat). Cross-device live sync via Firebase Realtime Database.</p>
+            <div class="owner-email-display">
+              <i class="fa-solid fa-crown" style="color: #fbbf24;"></i>
+              <strong>Master Mind Authority: Kausar Hayat</strong>
+              <span class="badge-verified"><i class="fa-solid fa-check-double"></i> Verified Owner</span>
+            </div>
+          </div>
+
+          <div class="security-card-box mt-3">
+            <h4><i class="fa-solid fa-key"></i> Change Admin Password (Master Only)</h4>
+            <p>Only you (Kausar Hayat) can change this password. Changes will synchronize centrally across all devices.</p>
+            <div class="form-group mb-2">
+              <label>Current Master Password</label>
+              <input type="password" id="inputMasterKeyCurrent" placeholder="Enter current password">
+            </div>
+            <div class="form-group mb-2">
+              <label>New Master Password</label>
+              <input type="password" id="inputMasterKeyNew" placeholder="Enter new password">
+            </div>
+            <div id="masterKeyUpdateMsg" class="error-msg" style="display: none;"></div>
+            <button class="btn btn-primary btn-sm" onclick="handleUpdateMasterKey()">
+              <i class="fa-solid fa-floppy-disk"></i> Update Password & Sync Everywhere
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab 4: Admin Private Keys Generator (Master Mind Only) -->
+        <div id="manageViewKeys" style="display: none;">
+          <p class="modal-section-desc">
+            Assign unique 4-digit Private Keys to authorized Admins. When an admin logs in, they must enter their exact name (matching this record), admin password 4545, and this Private Key.
           </p>
 
-          <!-- Quick Authorize Form -->
+          <!-- Create New Key Form -->
           <div class="key-generator-card" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 1.1rem; margin-bottom: 1.5rem;">
             <h4 style="font-size: 0.98rem; color: #ffffff; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
-              <i class="fa-solid fa-user-plus" style="color: #818cf8;"></i> Authorize New Admin in Firestore
+              <i class="fa-solid fa-plus-circle" style="color: #818cf8;"></i> Create New Admin Private Key
             </h4>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 130px auto; gap: 0.75rem; align-items: flex-end;">
+            <div style="display: grid; grid-template-columns: 1fr 140px auto; gap: 0.75rem; align-items: flex-end;">
               <div class="form-group" style="margin-bottom: 0;">
-                <label style="font-size: 0.78rem;"><i class="fa-solid fa-id-badge"></i> Firebase Auth UID</label>
-                <input type="text" id="newAdminUidInput" placeholder="User UID from Firebase Console" style="padding: 0.55rem 0.85rem; font-size: 0.88rem;">
+                <label style="font-size: 0.78rem;"><i class="fa-solid fa-user"></i> Admin Exact Name (Case-Sensitive)</label>
+                <input type="text" id="newAdminKeyName" placeholder="e.g. kausar or Ali Khan" style="padding: 0.55rem 0.85rem; font-size: 0.88rem;">
               </div>
               <div class="form-group" style="margin-bottom: 0;">
-                <label style="font-size: 0.78rem;"><i class="fa-solid fa-user"></i> Admin Name / Email</label>
-                <input type="text" id="newAdminNameInput" placeholder="e.g. Ali Khan (ali@gmail.com)" style="padding: 0.55rem 0.85rem; font-size: 0.88rem;">
+                <label style="font-size: 0.78rem;"><i class="fa-solid fa-key"></i> 4-Digit Key</label>
+                <input type="text" id="newAdminKeyValue" maxlength="4" placeholder="7890" inputmode="numeric" style="padding: 0.55rem 0.85rem; font-size: 0.88rem; letter-spacing: 3px; font-weight: 700; text-align: center;">
               </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <label style="font-size: 0.78rem;"><i class="fa-solid fa-shield"></i> Role</label>
-                <select id="newAdminRoleSelect" style="padding: 0.55rem 0.85rem; font-size: 0.88rem; background: #0f172a; color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px;">
-                  <option value="subadmin">Sub-Admin</option>
-                  <option value="master">Master Admin</option>
-                </select>
-              </div>
-              <button class="btn btn-primary" onclick="handleAddAdminDoc()" style="white-space: nowrap; height: 38px;">
-                <i class="fa-solid fa-check"></i> Authorize
+              <button class="btn btn-primary" onclick="createAdminPrivateKey()" style="white-space: nowrap; height: 38px;">
+                <i class="fa-solid fa-plus"></i> Assign Key
               </button>
             </div>
             <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem;">
-              <i class="fa-solid fa-circle-info" style="color: #60a5fa;"></i> Create the user under Firebase Console &gt; Authentication &gt; Users, then paste their UID here.
+              <i class="fa-solid fa-circle-info" style="color: #60a5fa;"></i> Exact spelling is matched when the Admin enters their credentials with password 4545.
             </div>
           </div>
 
-          <div id="approvedAdminsList" class="devices-list-container"></div>
-          <div id="emptyApprovedAdmins" class="empty-requests-box" style="display: none;">
-            <i class="fa-solid fa-user-shield"></i>
-            <h4>No Sub-Admins Currently Registered</h4>
-            <p>Only your Master Admin account is authorized.</p>
+          <!-- Existing Keys Table / Cards -->
+          <h4 style="font-size: 0.95rem; color: #ffffff; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
+            <span><i class="fa-solid fa-list-check" style="color: #38bdf8;"></i> Active Assigned Keys</span>
+            <span style="font-size: 0.78rem; color: #94a3b8;" id="keysCountLabel">0 Keys Registered</span>
+          </h4>
+          <div id="adminPrivateKeysList" class="devices-list-container">
+            <!-- Dynamically populated -->
+          </div>
+          <div id="emptyAdminPrivateKeys" class="empty-requests-box" style="display: none;">
+            <i class="fa-solid fa-key"></i>
+            <h4>No Private Keys Assigned Yet</h4>
+            <p>Use the form above to assign a 4-digit key to an admin name.</p>
           </div>
         </div>
 
-        <!-- Tab 3: Activity & Audit Logs -->
+        <!-- Tab 5: Activity & Audit Logs (Master Mind Realtime Tracking) -->
         <div id="manageViewAudit" style="display: none;">
           <p class="modal-section-desc">
-            Complete real-time activity and audit log of all admin operations. Sensitive credentials or passwords are never stored in logs.
+            Complete real-time activity and audit log of all admin operations. Tracks who accessed the portal, what late entries were added, edited, deleted, or paid, and exact timestamps.
           </p>
 
+          <!-- Audit Filters & Search Bar -->
           <div class="audit-controls-bar">
             <div class="audit-filter-group">
               <div class="audit-select-wrap">
@@ -537,6 +683,7 @@
             </div>
           </div>
 
+          <!-- Audit Stats Strip -->
           <div class="audit-stats-strip">
             <div class="audit-stat-item">
               <span class="audit-stat-num" id="auditStatTotalCount">0</span>
@@ -552,7 +699,10 @@
             </div>
           </div>
 
-          <div id="adminAuditLogsList" class="audit-logs-container"></div>
+          <!-- Dynamic Activity Log List -->
+          <div id="adminAuditLogsList" class="audit-logs-container">
+            <!-- Dynamically populated -->
+          </div>
           <div id="emptyAdminAuditLogs" class="empty-requests-box" style="display: none;">
             <i class="fa-solid fa-clipboard-check"></i>
             <h4>No Activity Recorded Yet</h4>
@@ -568,7 +718,7 @@
     </div>
   </div>
 
-  <!-- Change Password Modal (Firebase Authentication) -->
+  <!-- Change PIN Modal (Master Protected & Centrally Synchronized) -->
   <div class="modal-overlay" id="pinModal" onclick="handleModalOverlayClick(event, 'pinModal')">
     <div class="modal-box">
       <div class="modal-header">
@@ -580,32 +730,34 @@
         <div class="owner-protection-alert">
           <i class="fa-solid fa-lock"></i>
           <div>
-            <strong>Firebase Authentication Security:</strong>
-            <p>Update your account password. All updates are handled securely and directly by Google Firebase Auth servers.</p>
+            <strong>Master Owner Protection:</strong>
+            <p>Only Master Admin (<strong>Kausar Hayat</strong>) is authorized to change the Admin Password. This will synchronize across all devices.</p>
           </div>
         </div>
 
-        <form id="changePasswordForm" onsubmit="event.preventDefault(); handleChangePassword();">
-          <div class="form-group mb-3">
-            <label><i class="fa-solid fa-lock"></i> New Password (min 6 characters)</label>
-            <input type="password" id="newAdminPasswordInput" placeholder="Enter new password" minlength="6" required>
-          </div>
+        <div class="form-group mb-3">
+          <label><i class="fa-solid fa-shield-halved"></i> Master Owner Passkey</label>
+          <input type="password" id="masterPasskeyForPinInput" placeholder="Enter Master Security Passkey">
+        </div>
 
-          <div class="form-group mb-3">
-            <label><i class="fa-solid fa-check"></i> Confirm New Password</label>
-            <input type="password" id="confirmAdminPasswordInput" placeholder="Confirm new password" minlength="6" required>
-          </div>
+        <div class="form-group mb-3">
+          <label><i class="fa-solid fa-key"></i> New Master Secret PIN (4-12 digits)</label>
+          <input type="password" id="newPinInput" placeholder="Enter new secret PIN (e.g. 9922)">
+        </div>
 
-          <div id="passwordErrorMsg" class="error-msg" style="display: none;"></div>
-          <div id="passwordSuccessMsg" class="success-msg" style="display: none;"></div>
+        <div class="form-group mb-3">
+          <label><i class="fa-solid fa-check"></i> Confirm New PIN</label>
+          <input type="password" id="confirmNewPinInput" placeholder="Confirm new secret PIN">
+        </div>
 
-          <div class="modal-actions-row">
-            <button type="button" class="btn btn-secondary" onclick="closePinModal()">Cancel</button>
-            <button type="submit" class="btn btn-primary" id="btnUpdatePassword">
-              <i class="fa-solid fa-floppy-disk"></i> Update Password
-            </button>
-          </div>
-        </form>
+        <div id="pinErrorMsg" class="error-msg" style="display: none;"></div>
+        <div id="pinSuccessMsg" class="success-msg" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closePinModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="handleChangePin()">
+          <i class="fa-solid fa-floppy-disk"></i> Save & Sync PIN Everywhere
+        </button>
       </div>
     </div>
   </div>
@@ -695,6 +847,6 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- App Script with cache-busting version -->
-  <script src="app.js?v=20261012_backend_auth"></script>
+  <script src="app.js?v=20261012_restore_pin_v2"></script>
 </body>
 </html>
