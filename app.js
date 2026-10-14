@@ -105,29 +105,44 @@
     !recaptchaSiteKey.includes('REPLACE');
 
   // Primary Firebase app instance for Fine Collector (MUST initialize first)
-  let mainApp;
-  if (!fb.apps.length) {
-    mainApp = fb.initializeApp(firebaseConfig);
-  } else {
-    mainApp = fb.app();
-  }
+  let mainApp = null;
+  let mainAuth = null;
+  let mainDb = null;
 
-  // Activate App Check on main app only AFTER initializeApp
-  if (isAppCheckConfigured) {
-    try {
-      fb.appCheck().activate(recaptchaSiteKey, true);
-    } catch (err) {
-      console.warn('[AppCheck] Main app App Check activation error:', err.message);
+  try {
+    if (!fb.apps.length) {
+      mainApp = fb.initializeApp(firebaseConfig);
+    } else {
+      mainApp = fb.app();
     }
-  } else {
-    console.warn('[AppCheck] Skipping App Check activation: no valid reCAPTCHA v3 site key provided.');
-  }
 
-  const mainAuth = fb.auth();
-  const mainDb = fb.firestore();
+    // Activate App Check on main app only AFTER initializeApp
+    if (isAppCheckConfigured) {
+      try {
+        fb.appCheck().activate(recaptchaSiteKey, true);
+      } catch (err) {
+        console.warn('[AppCheck] Main app App Check activation error:', err.message);
+      }
+    } else {
+      console.warn('[AppCheck] Skipping App Check activation: no valid reCAPTCHA v3 site key provided.');
+    }
+
+    if (firebaseConfig.apiKey && firebaseConfig.apiKey.trim() !== '') {
+      mainAuth = fb.auth();
+    } else {
+      console.warn('[Firebase] Warning: apiKey is empty in firebase-config.js. Please paste your apiKey.');
+    }
+
+    mainDb = fb.firestore();
+  } catch (initErr) {
+    console.error('[Firebase] Initialization error:', initErr.message);
+  }
 
   // Secondary Firebase app instance for Master Mind key creation
   function getSecondaryAuth() {
+    if (!firebaseConfig.apiKey || firebaseConfig.apiKey.trim() === '') {
+      throw new Error('Firebase apiKey is missing in firebase-config.js');
+    }
     let secApp = fb.apps.find(a => a.name === 'secondary');
     if (!secApp) {
       secApp = fb.initializeApp(firebaseConfig, 'secondary');
@@ -293,52 +308,64 @@
   }
 
   /* ==================== REALTIME STUDENTS LISTENER ==================== */
-  mainDb.collection('students').onSnapshot((snapshot) => {
-    const list = [];
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      if (data && typeof data === 'object') {
-        list.push({ ...data, id: doc.id });
-      }
-    });
-    // Sort latest records first
-    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    STATE.students = list;
-    renderAll();
-  }, (error) => {
-    console.warn('[Firestore] Students listener notice:', error.message);
-  });
+  if (mainDb) {
+    try {
+      mainDb.collection('students').onSnapshot((snapshot) => {
+        const list = [];
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          if (data && typeof data === 'object') {
+            list.push({ ...data, id: doc.id });
+          }
+        });
+        // Sort latest records first
+        list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        STATE.students = list;
+        renderAll();
+      }, (error) => {
+        console.warn('[Firestore] Students listener notice:', error.message);
+      });
+    } catch (err) {
+      console.warn('[Firestore] Could not attach students listener:', err.message);
+    }
+  }
 
   /* ==================== AUTH STATE CHANGE LISTENER ==================== */
-  mainAuth.onAuthStateChanged(async (user) => {
-    if (user) {
-      try {
-        const adminDoc = await mainDb.collection('admins').doc(user.uid).get();
-        if (adminDoc.exists) {
-          const data = adminDoc.data() || {};
-          STATE.isAdmin = true;
-          STATE.adminRole = data.role || 'subadmin';
-          STATE.isMasterAdmin = (STATE.adminRole === 'master');
-          STATE.adminName = data.name || (STATE.isMasterAdmin ? 'Kausar Hayat' : 'Sub-Admin');
-          STATE.adminUid = user.uid;
+  if (mainAuth) {
+    try {
+      mainAuth.onAuthStateChanged(async (user) => {
+        if (user) {
+          try {
+            const adminDoc = await mainDb.collection('admins').doc(user.uid).get();
+            if (adminDoc.exists) {
+              const data = adminDoc.data() || {};
+              STATE.isAdmin = true;
+              STATE.adminRole = data.role || 'subadmin';
+              STATE.isMasterAdmin = (STATE.adminRole === 'master');
+              STATE.adminName = data.name || (STATE.isMasterAdmin ? 'Kausar Hayat' : 'Sub-Admin');
+              STATE.adminUid = user.uid;
 
-          updateUIForAdminState();
+              updateUIForAdminState();
 
-          if (STATE.isMasterAdmin) {
-            attachMasterListeners();
+              if (STATE.isMasterAdmin) {
+                attachMasterListeners();
+              }
+              return;
+            }
+          } catch (e) {
+            console.warn('Admin status check notice:', e.message);
           }
-          return;
         }
-      } catch (e) {
-        console.warn('Admin status check notice:', e.message);
-      }
-    }
 
-    if (!isWaitingForApproval) {
-      resetAdminState();
-      updateUIForAdminState();
+        if (!isWaitingForApproval) {
+          resetAdminState();
+          updateUIForAdminState();
+        }
+      });
+    } catch (err) {
+      console.warn('[Auth] Could not attach auth state listener:', err.message);
     }
-  });
+  }
 
   function resetAdminState() {
     STATE.isAdmin = false;
@@ -996,6 +1023,14 @@
       return;
     }
 
+    if (!mainAuth || !mainDb || !firebaseConfig.apiKey) {
+      if (errorMsg) {
+        errorMsg.textContent = 'Firebase API key is missing. Please paste your apiKey in firebase-config.js.';
+        errorMsg.style.display = 'block';
+      }
+      return;
+    }
+
     // SCENARIO A: Sub-admin has entered an optional 6-digit Private Key
     if (key) {
       if (!/^\d{6}$/.test(key)) {
@@ -1187,6 +1222,14 @@
     if (!passcode || passcode.length < 8) {
       if (errorMsg) {
         errorMsg.textContent = 'Passcode must be at least 8 characters.';
+        errorMsg.style.display = 'block';
+      }
+      return;
+    }
+
+    if (!mainAuth || !mainDb || !firebaseConfig.apiKey) {
+      if (errorMsg) {
+        errorMsg.textContent = 'Firebase API key is missing. Please paste your apiKey in firebase-config.js.';
         errorMsg.style.display = 'block';
       }
       return;
