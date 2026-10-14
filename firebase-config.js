@@ -16,12 +16,13 @@
  *    (Do not change authDomain, projectId, or storageBucket if using default naming).
  */
 window.__FC_FIREBASE_CONFIG__ = {
-  apiKey: "",
+  apiKey: "AIzaSyA5FIgcrRT3oLm14tej6MSw4DoPDZcAiXI",
   authDomain: "fine-collector.firebaseapp.com",
+  databaseURL: "https://fine-collector-default-rtdb.firebaseio.com",
   projectId: "fine-collector",
-  storageBucket: "fine-collector.appspot.com",
-  messagingSenderId: "",
-  appId: ""
+  storageBucket: "fine-collector.firebasestorage.app",
+  messagingSenderId: "562810659222",
+  appId: "1:562810659222:web:acde54f52100f428f2bdb7"
 };
 
 /**
