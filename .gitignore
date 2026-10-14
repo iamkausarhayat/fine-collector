@@ -1,7 +1,11 @@
 # Dependencies and environment
 .env
-.env.local
-.env.*.local
+.env.*
+*.pem
+*.key
+serviceAccount*.json
+firebase-debug.log
+.firebase/
 *.log
 
 # OS generated files

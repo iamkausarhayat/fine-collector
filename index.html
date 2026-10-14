@@ -13,18 +13,13 @@
   
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  
-  <!-- Firebase SDKs for 24/7 Cloud Sync, Firestore & Auth -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Cache Busting & No-Store -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
 
-  <link rel="stylesheet" href="style.css?v=20261012_v2">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -48,12 +43,12 @@
 
       <div class="header-actions">
         <!-- Theme Toggle Button (Light/Dark) -->
-        <button class="btn btn-theme-toggle" id="themeToggleBtn" onclick="toggleTheme()" title="Switch Light/Dark Mode" aria-label="Toggle Theme">
+        <button class="btn btn-theme-toggle" id="themeToggleBtn" title="Switch Light/Dark Mode" aria-label="Toggle Theme">
           <i class="fa-solid fa-moon" id="themeToggleIcon"></i>
         </button>
 
         <!-- Admin Login / Mode Toggle -->
-        <button class="btn btn-admin" id="adminToggleBtn" onclick="toggleAdminModal()">
+        <button class="btn btn-admin" id="adminToggleBtn">
           <i class="fa-solid fa-shield-halved"></i>
           <span id="adminBtnText">Admin Login</span>
         </button>
@@ -67,32 +62,24 @@
           <i class="fa-solid fa-crown"></i> Master Admin
         </span>
         <span class="badge-active-admins-count" id="headerActiveAdminsCount" style="display: none;">
-          <i class="fa-solid fa-user-shield"></i> Active Admins: <strong>0</strong>
+          <i class="fa-solid fa-user-shield"></i> Active Admins: <strong id="headerActiveAdminsCountNum">0</strong>
         </span>
         <span class="admin-banner-desc" id="adminBannerDesc">
-          Authorized to add records, update payment status, and manage system.
+          Authorized to add records and update payment status.
         </span>
       </div>
       <div class="admin-banner-actions">
         <!-- Master Admin Only: Manage Authorized Admins -->
-        <button class="btn-sm btn-manage-admins" id="btnManageAdmins" onclick="openAdminManagementModal()" title="Manage Authorized Devices & Permissions">
+        <button class="btn-sm btn-manage-admins" id="btnManageAdmins" style="display: none;" title="Manage Authorized Devices & Permissions">
           <i class="fa-solid fa-users-gear"></i> Manage Admins
           <span class="badge-pending" id="manageAdminsPendingBadge" style="display: none;">0</span>
         </button>
-        <!-- Master PIN Change (Master verified) -->
-        <button class="btn-sm" id="btnChangePin" onclick="openPinModal()" title="Change Master Admin PIN">
-          <i class="fa-solid fa-key"></i> Change PIN
-        </button>
-        <!-- Cloud DB Setup -->
-        <button class="btn-sm" onclick="openCloudModal()" title="Cloud Database Setup">
-          <i class="fa-solid fa-cloud"></i> Cloud DB
-        </button>
-        <!-- Clear All -->
-        <button class="btn-sm" id="btnClearAllRecords" onclick="clearAllRecords()" title="Clear All Records">
+        <!-- Master Admin Only: Clear All -->
+        <button class="btn-sm" id="btnClearAllRecords" style="display: none;" title="Clear All Records">
           <i class="fa-solid fa-trash-can"></i> Clear All
         </button>
         <!-- Logout -->
-        <button class="btn-sm btn-logout" onclick="logoutAdmin()">
+        <button class="btn-sm btn-logout" id="btnLogout">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
       </div>
@@ -144,7 +131,7 @@
         <span class="fine-tag"><i class="fa-solid fa-tag"></i> Default Fine: Rs. 100</span>
       </div>
 
-      <form id="lateEntryForm" onsubmit="handleNewEntry(event)">
+      <form id="lateEntryForm">
         <div class="form-grid">
           
           <!-- Student Name -->
@@ -155,6 +142,7 @@
               id="studentName" 
               placeholder="Enter student name..." 
               required 
+              maxlength="60"
               autocomplete="off"
             >
           </div>
@@ -169,12 +157,12 @@
           <div class="form-group time-group">
             <label for="arrivalTime"><i class="fa-solid fa-clock"></i> Arrival Time</label>
             <div class="time-input-wrap">
-              <input type="text" id="arrivalTime" placeholder="e.g. 8:04 AM or 8:10+" required>
+              <input type="text" id="arrivalTime" placeholder="e.g. 8:04 AM or 8:10+" maxlength="20" required>
               <div class="time-presets">
-                <button type="button" class="btn-preset" onclick="setPresetTime('now')" title="Current Time">
+                <button type="button" class="btn-preset" id="btnPresetNow" title="Current Time">
                   <i class="fa-solid fa-bullseye"></i> Now
                 </button>
-                <button type="button" class="btn-preset btn-preset-late" onclick="setPresetTime('8:10+')" title="Late after 10 mins">
+                <button type="button" class="btn-preset btn-preset-late" id="btnPresetLate" title="Late after 10 mins">
                   8:10+ AM
                 </button>
               </div>
@@ -184,7 +172,7 @@
           <!-- Fine Amount -->
           <div class="form-group fine-group">
             <label for="fineAmount"><i class="fa-solid fa-coins"></i> Fine (Rs)</label>
-            <input type="number" id="fineAmount" value="100" min="0" step="50" required>
+            <input type="number" id="fineAmount" value="100" min="0" max="1000" step="50" required>
           </div>
 
           <!-- Initial Payment Status Checkbox -->
@@ -214,10 +202,9 @@
         <input 
           type="text" 
           id="searchStudent" 
-          placeholder="Search by student name..." 
-          oninput="applyFilters()"
+          placeholder="Search by student name..."
         >
-        <button class="clear-search" id="clearSearchBtn" onclick="clearSearch()" style="display: none;">
+        <button class="clear-search" id="clearSearchBtn" style="display: none;">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
@@ -225,13 +212,13 @@
       <!-- Filters Row -->
       <div class="filter-group">
         <!-- Date Filter -->
-        <select id="filterDate" onchange="applyFilters()">
+        <select id="filterDate">
           <option value="all" selected>All Records</option>
           <option value="today">Today Only</option>
         </select>
 
         <!-- Status Filter -->
-        <select id="filterStatus" onchange="applyFilters()">
+        <select id="filterStatus">
           <option value="all">All Statuses</option>
           <option value="unpaid">Pending Only</option>
           <option value="paid">Paid Only</option>
@@ -261,7 +248,7 @@
             </tr>
           </thead>
           <tbody id="studentsTableBody">
-            <!-- Dynamic Rows will appear here -->
+            <!-- Dynamically populated via secure internal renderer -->
           </tbody>
         </table>
       </div>
@@ -284,15 +271,12 @@
 
   <!-- ==================== MODALS ==================== -->
 
-  <!-- ==================== MODALS ==================== -->
-
   <!-- Multi-Device Admin Login Modal -->
-  <!-- Multi-Device Admin Login Modal -->
-  <div class="modal-overlay" id="adminModal" onclick="handleModalOverlayClick(event, 'adminModal')">
+  <div class="modal-overlay" id="adminModal" style="display: none;">
     <div class="modal-box modal-md">
       <div class="modal-header">
         <h3><i class="fa-solid fa-shield-halved"></i> Admin Access Portal</h3>
-        <button class="modal-close" onclick="closeAdminModal()">&times;</button>
+        <button class="modal-close" id="closeAdminModalBtn">&times;</button>
       </div>
 
       <div class="modal-body">
@@ -300,7 +284,7 @@
         <!-- VIEW 1: ADMIN LOGIN & PERMISSION PORTAL -->
         <div id="loginViewPin">
           <p class="modal-desc" style="color: #cbd5e1; font-size: 0.88rem; line-height: 1.5; margin-bottom: 1.1rem;">
-            Enter your Full Name and Admin Password (4545). If Master Mind has assigned you a 4-digit Private Key, you will log in instantly. Otherwise, your access request will be sent to Master Mind for direct approval.
+            Enter your Full Name. If you have been assigned a 6-digit Private Key, enter it for instant access. Otherwise, leave the key field blank to request real-time approval from Master Mind.
           </p>
 
           <div class="form-group mb-3">
@@ -308,64 +292,45 @@
             <input 
               type="text" 
               id="adminLoginNameInput" 
-              placeholder="e.g. kausar or Ali Khan" 
+              placeholder="e.g. Ali Khan" 
               autocomplete="name"
+              maxlength="60"
               required
-              onkeypress="if(event.key === 'Enter') document.getElementById('adminPinInput').focus()"
             >
-            <span class="input-helper">Note: Exact spelling matches your assigned Private Key</span>
-          </div>
-
-          <div class="form-group mb-3">
-            <label for="adminPinInput"><i class="fa-solid fa-lock"></i> Sub-Admin Password</label>
-            <div class="pin-input-wrap">
-              <input 
-                type="password" 
-                id="adminPinInput" 
-                maxlength="30" 
-                placeholder="Enter Sub-Admin Password" 
-                autocomplete="off"
-                onkeypress="if(event.key === 'Enter') handleAdminLogin()"
-              >
-              <button type="button" class="btn-eye" onclick="togglePinVisibility('adminPinInput')">
-                <i class="fa-solid fa-eye" id="adminPinEyeIcon"></i>
-              </button>
-            </div>
           </div>
 
           <div class="form-group mb-3">
             <label for="adminPrivateKeyInput">
-              <i class="fa-solid fa-key" style="color: #818cf8;"></i> 4-Digit Private Key 
+              <i class="fa-solid fa-key" style="color: #818cf8;"></i> 6-Digit Private Key 
               <span style="font-weight: 400; color: #94a3b8; font-size: 0.78rem;">(Optional)</span>
             </label>
             <div class="pin-input-wrap">
               <input 
                 type="password" 
                 id="adminPrivateKeyInput" 
-                maxlength="4" 
+                maxlength="6" 
                 inputmode="numeric" 
-                placeholder="••••" 
+                placeholder="••••••" 
                 style="letter-spacing: 5px; font-size: 1.2rem; text-align: center;"
-                onkeypress="if(event.key === 'Enter') handleAdminLogin()"
               >
-              <button type="button" class="btn-eye" onclick="togglePinVisibility('adminPrivateKeyInput')">
+              <button type="button" class="btn-eye" id="adminPrivateKeyEyeBtn">
                 <i class="fa-solid fa-eye" id="adminPrivateKeyEyeIcon"></i>
               </button>
             </div>
-            <span class="input-helper">Enter assigned 4-digit key, or leave blank to request Master Mind approval</span>
+            <span class="input-helper">Enter assigned 6-digit key, or leave blank to request Master Mind approval</span>
           </div>
 
           <div id="loginErrorMsg" class="error-msg" style="display: none;"></div>
           
           <div class="modal-actions-row">
-            <button class="btn btn-secondary" onclick="closeAdminModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="handleAdminLogin()">
+            <button class="btn btn-secondary" id="closeAdminModalCancelBtn">Cancel</button>
+            <button class="btn btn-primary" id="btnAdminSubmit">
               <i class="fa-solid fa-shield-halved"></i> Sign In / Request Access
             </button>
           </div>
 
           <div class="master-switch-footer" style="margin-top: 1.25rem; text-align: center; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
-            <a href="javascript:void(0)" onclick="switchLoginTab('master')" class="link-master-switch" style="color: #fbbf24; font-size: 0.84rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+            <a href="javascript:void(0)" id="linkToMasterLogin" class="link-master-switch" style="color: #fbbf24; font-size: 0.84rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;">
               <i class="fa-solid fa-crown"></i> Master Mind (Kausar Hayat) Login
             </a>
           </div>
@@ -397,7 +362,7 @@
 
             <div class="waiting-details-box">
               <div><span>Applicant:</span> <strong id="waitRequesterName">-</strong></div>
-              <div><span>Requested Role:</span> <strong id="waitRoleBadge" style="color: #38bdf8;">-</strong></div>
+              <div><span>Requested Role:</span> <strong id="waitRoleBadge" style="color: #38bdf8;">Sub-Admin</strong></div>
               <div><span>Device:</span> <span id="waitDeviceName">-</span></div>
               <div><span>Status:</span> <span class="badge-waiting"><i class="fa-solid fa-circle-notch fa-spin"></i> Awaiting Master Mind</span></div>
             </div>
@@ -407,53 +372,49 @@
           </div>
 
           <div class="modal-actions-row justify-center mt-3">
-            <button class="btn btn-secondary" onclick="closeAdminModal()">Close Window</button>
+            <button class="btn btn-secondary" id="closeWaitingModalBtn">Close Window</button>
           </div>
         </div>
 
-        <!-- VIEW 4: DENIED / ACCESS REJECTED SCREEN -->
+        <!-- VIEW 3: DENIED / ACCESS REJECTED SCREEN -->
         <div id="pinStepDenied" style="display: none;">
           <div class="approval-waiting-card" style="border-color: rgba(244, 63, 94, 0.5); background: linear-gradient(145deg, rgba(244, 63, 94, 0.16), rgba(15, 23, 42, 0.95));">
             <div style="width: 56px; height: 56px; border-radius: 56px; background: rgba(244, 63, 94, 0.22); color: #fb7185; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto 1rem; border: 1px solid rgba(244, 63, 94, 0.45);">
               <i class="fa-solid fa-ban"></i>
             </div>
-            <h4 style="color: #fb7185; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;" id="denialHeading">You are denied by Kausar Khattak</h4>
-            <p id="denialMessage" style="color: #f1f5f9; font-size: 0.95rem; line-height: 1.6; font-weight: 600;">You are denied by Kausar Khattak</p>
-            <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem;" id="denialSubText">Access request was declined by the system owner.</p>
+            <h4 style="color: #fb7185; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;" id="denialHeading">Access Denied</h4>
+            <p id="denialMessage" style="color: #f1f5f9; font-size: 0.95rem; line-height: 1.6; font-weight: 600;">Your access request was declined or timed out.</p>
+            <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem;" id="denialSubText">Access requires explicit authorization by Master Mind (Kausar Hayat).</p>
           </div>
           <div class="modal-actions-row justify-center mt-3" style="gap: 0.75rem;">
-            <button class="btn btn-secondary" onclick="closeAdminModal()">Close</button>
-            <button class="btn btn-primary" onclick="retryAdminLogin()">
+            <button class="btn btn-secondary" id="closeDeniedModalBtn">Close</button>
+            <button class="btn btn-primary" id="btnRetryLogin">
               <i class="fa-solid fa-rotate-left"></i> Try Again / Enter Key
             </button>
           </div>
         </div>
 
-        <!-- VIEW 3: MASTER OWNER DIRECT LOGIN (KAUSAR HAYAT ONLY) -->
+        <!-- VIEW 4: MASTER OWNER DIRECT LOGIN (KAUSAR HAYAT ONLY) -->
         <div id="loginViewMaster" style="display: none;">
-          
-          <!-- State A: Form for verified Kausar Hayat or first-time setup -->
           <div class="owner-login-card" id="masterLoginFormCard">
             <div class="owner-avatar-icon">
               <i class="fa-solid fa-crown"></i>
             </div>
             <h4>Master Mind Verification</h4>
-            <p>Direct login for System Owner (Kausar Hayat). Protected by high-iteration cryptographic key stretching & rate limiting.</p>
-            
-
+            <p>Direct login for System Owner (Kausar Hayat). Server-authenticated with minimum 8-character passcode.</p>
 
             <div class="form-group mb-3 text-left">
-              <label for="masterOwnerKeyInput"><i class="fa-solid fa-key" style="color: #fbbf24;"></i> Secret Master Password</label>
+              <label for="masterPasscodeInput"><i class="fa-solid fa-key" style="color: #fbbf24;"></i> Secret Master Passcode</label>
               <div class="pin-input-wrap">
                 <input 
                   type="password" 
-                  id="masterOwnerKeyInput" 
-                  placeholder="Enter Secret Master Password" 
+                  id="masterPasscodeInput" 
+                  placeholder="Enter Master Passcode (8+ characters)" 
                   autocomplete="current-password"
-                  onkeypress="if(event.key === 'Enter') handleMasterOwnerLogin()"
+                  minlength="8"
                 >
-                <button type="button" class="btn-eye" onclick="togglePinVisibility('masterOwnerKeyInput')">
-                  <i class="fa-solid fa-eye" id="masterOwnerKeyEyeIcon"></i>
+                <button type="button" class="btn-eye" id="masterPasscodeEyeBtn">
+                  <i class="fa-solid fa-eye" id="masterPasscodeEyeIcon"></i>
                 </button>
               </div>
               <span class="input-helper">Server-side authenticated via Google Firebase</span>
@@ -463,13 +424,12 @@
             <div id="masterLockoutCountdown" style="display: none; color: #f43f5e; font-size: 0.85rem; font-weight: 700; text-align: center; margin-bottom: 0.75rem;"></div>
 
             <div class="modal-actions-row">
-              <button class="btn btn-secondary" onclick="switchLoginTab('pin')">Back</button>
-              <button class="btn btn-gold" id="btnVerifyMasterMind" onclick="handleMasterOwnerLogin()">
+              <button class="btn btn-secondary" id="btnMasterBack">Back</button>
+              <button class="btn btn-gold" id="btnVerifyMasterMind">
                 <i class="fa-solid fa-crown"></i> Verify as Master Mind
               </button>
             </div>
           </div>
-
         </div>
 
       </div>
@@ -477,14 +437,14 @@
   </div>
 
   <!-- Master Admin: Manage Authorized Admins Modal -->
-  <div class="modal-overlay" id="adminManageModal" onclick="handleModalOverlayClick(event, 'adminManageModal')">
+  <div class="modal-overlay" id="adminManageModal" style="display: none;">
     <div class="modal-box modal-lg">
       <div class="modal-header">
         <div class="modal-title-wrap">
           <h3><i class="fa-solid fa-users-gear"></i> Admin Access Management</h3>
           <span class="master-owner-badge"><i class="fa-solid fa-crown"></i> Master Owner: Kausar Hayat</span>
         </div>
-        <button class="modal-close" onclick="closeAdminManagementModal()">&times;</button>
+        <button class="modal-close" id="closeAdminManageModalBtn">&times;</button>
       </div>
 
       <!-- Locked Placeholder for unverified/inspect bypass attempts -->
@@ -496,28 +456,25 @@
         <p style="color: #94a3b8; font-size: 0.9rem; max-width: 440px; margin: 0 auto 1.5rem; line-height: 1.6;">
           This area is strictly restricted to system owner <strong>Kausar Hayat</strong>. Unauthenticated access attempts are blocked and logged.
         </p>
-        <button class="btn btn-gold" onclick="closeAdminManagementModal(); switchLoginTab('master'); document.getElementById('adminModal').style.display = 'flex';">
+        <button class="btn btn-gold" id="btnLockedPlaceholderAuth">
           <i class="fa-solid fa-crown"></i> Authenticate as Master Mind
         </button>
       </div>
 
       <!-- Manage Tabs (Hidden until authenticated) -->
       <div class="modal-nav-tabs" id="adminManageTabs" style="display: none;">
-        <button class="modal-tab active" id="tabManagePendingBtn" onclick="switchManageTab('pending')">
+        <button class="modal-tab active" id="tabManagePendingBtn">
           <i class="fa-solid fa-clock-rotate-left"></i> Pending Requests
           <span class="badge-pending-count" id="manageTabPendingBadge">0</span>
         </button>
-        <button class="modal-tab" id="tabManageApprovedBtn" onclick="switchManageTab('approved')">
+        <button class="modal-tab" id="tabManageApprovedBtn">
           <i class="fa-solid fa-user-check"></i> Active Admins (<span id="manageTabApprovedBadge">0</span>)
         </button>
-        <button class="modal-tab" id="tabManageKeysBtn" onclick="switchManageTab('keys')">
+        <button class="modal-tab" id="tabManageKeysBtn">
           <i class="fa-solid fa-key"></i> Private Keys (<span id="manageTabKeysBadge">0</span>)
         </button>
-        <button class="modal-tab" id="tabManageAuditBtn" onclick="switchManageTab('audit')">
+        <button class="modal-tab" id="tabManageAuditBtn">
           <i class="fa-solid fa-receipt"></i> Activity & Audit Logs (<span id="manageTabAuditBadge">0</span>)
-        </button>
-        <button class="modal-tab" id="tabManageSecurityBtn" onclick="switchManageTab('security')">
-          <i class="fa-solid fa-lock"></i> Password & Security
         </button>
       </div>
 
@@ -525,29 +482,8 @@
         
         <!-- Tab 1: Pending Access Requests -->
         <div id="manageViewPending">
-          <!-- Permission Request Alert Box inside Master Page only -->
-          <div class="permission-alert-banner" id="permissionAlertBanner" style="display: none; margin-bottom: 1.25rem;">
-            <div class="alert-banner-left">
-              <div class="alert-pulse-ring">
-                <i class="fa-solid fa-bell"></i>
-              </div>
-              <div class="alert-banner-info">
-                <span class="alert-banner-title">New Admin Permission Request!</span>
-                <span class="alert-banner-desc" id="permissionAlertDesc">A user wants admin access</span>
-              </div>
-            </div>
-            <div class="alert-banner-actions">
-              <button class="btn-xs btn-banner-approve" onclick="quickApproveFromBanner()" title="Grant Admin Access">
-                <i class="fa-solid fa-check"></i> Allow Access
-              </button>
-              <button class="btn-xs btn-banner-reject" onclick="quickRejectFromBanner()" title="Reject Request">
-                <i class="fa-solid fa-xmark"></i> Reject
-              </button>
-            </div>
-          </div>
-
           <p class="modal-section-desc">
-            Users currently requesting admin access with 4545. Click <strong>"Allow Access"</strong> to grant instant Sub-Admin access, or <strong>"Assign Key"</strong> to generate a unique Private Key for their exact name.
+            Users currently requesting admin access. Click <strong>"Allow Access"</strong> to grant instant Sub-Admin access, <strong>"Reject"</strong> to decline, or <strong>"Assign Key"</strong> to register a permanent 6-digit Private Key.
           </p>
           <div id="pendingRequestsList" class="devices-list-container">
             <!-- Dynamically populated -->
@@ -562,7 +498,7 @@
         <!-- Tab 2: Approved Active Admins (Delete / Remove Capability) -->
         <div id="manageViewApproved" style="display: none;">
           <p class="modal-section-desc">
-            All users currently authorized as Sub-Admins. You can assign them Private Keys or click <strong>"Delete / Remove Admin"</strong> to instantly revoke access and lock them out.
+            All users currently authorized as Sub-Admins. Click <strong>"Delete Admin"</strong> to instantly revoke their credentials and lock them out of the server.
           </p>
           <div id="approvedAdminsList" class="devices-list-container">
             <!-- Dynamically populated -->
@@ -570,88 +506,80 @@
           <div id="emptyApprovedAdmins" class="empty-requests-box" style="display: none;">
             <i class="fa-solid fa-user-shield"></i>
             <h4>No Sub-Admins Currently Active</h4>
-            <p>Only your Master Admin device is authorized.</p>
+            <p>Only your Master Admin account is authorized.</p>
           </div>
         </div>
 
-        <!-- Tab 3: Password & Security Settings -->
-        <div id="manageViewSecurity" style="display: none;">
-          <div class="security-card-box">
-            <h4><i class="fa-solid fa-shield-halved"></i> Master Mind System Security</h4>
-            <p>Direct owner authority (Kausar Hayat). Cross-device live sync via Firebase Realtime Database.</p>
-            <div class="owner-email-display">
-              <i class="fa-solid fa-crown" style="color: #fbbf24;"></i>
-              <strong>Master Mind Authority: Kausar Hayat</strong>
-              <span class="badge-verified"><i class="fa-solid fa-check-double"></i> Verified Owner</span>
-            </div>
-          </div>
-
-          <div class="security-card-box mt-3">
-            <h4><i class="fa-solid fa-key"></i> Change Admin Password (Master Only)</h4>
-            <p>Only you (Kausar Hayat) can change this password. Changes will synchronize centrally across all devices.</p>
-            <div class="form-group mb-2">
-              <label>Current Master Password</label>
-              <input type="password" id="inputMasterKeyCurrent" placeholder="Enter current password">
-            </div>
-            <div class="form-group mb-2">
-              <label>New Master Password</label>
-              <input type="password" id="inputMasterKeyNew" placeholder="Enter new password">
-            </div>
-            <div id="masterKeyUpdateMsg" class="error-msg" style="display: none;"></div>
-            <button class="btn btn-primary btn-sm" onclick="handleUpdateMasterKey()">
-              <i class="fa-solid fa-floppy-disk"></i> Update Password & Sync Everywhere
-            </button>
-          </div>
-        </div>
-
-        <!-- Tab 4: Admin Private Keys Generator (Master Mind Only) -->
+        <!-- Tab 3: Admin Private Keys Generator (Master Mind Only) -->
         <div id="manageViewKeys" style="display: none;">
           <p class="modal-section-desc">
-            Assign unique 4-digit Private Keys to authorized Admins. When an admin logs in, they must enter their exact name (matching this record), admin password 4545, and this Private Key.
+            Assign unique 6-digit Private Keys to authorized Admins. Credentials are registered directly into Firebase Authentication. Keys are never saved in Firestore and are shown only once upon creation.
           </p>
 
           <!-- Create New Key Form -->
           <div class="key-generator-card" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 1.1rem; margin-bottom: 1.5rem;">
-            <h4 style="font-size: 0.98rem; color: #ffffff; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
-              <i class="fa-solid fa-plus-circle" style="color: #818cf8;"></i> Create New Admin Private Key
+            <h4 style="font-size: 0.98rem; color: var(--text-primary); margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="fa-solid fa-plus-circle" style="color: #818cf8;"></i> Register New Admin 6-Digit Key
             </h4>
-            <div style="display: grid; grid-template-columns: 1fr 140px auto; gap: 0.75rem; align-items: flex-end;">
+            <div style="display: grid; grid-template-columns: 1fr 140px auto auto; gap: 0.75rem; align-items: flex-end;">
               <div class="form-group" style="margin-bottom: 0;">
-                <label style="font-size: 0.78rem;"><i class="fa-solid fa-user"></i> Admin Exact Name (Case-Sensitive)</label>
-                <input type="text" id="newAdminKeyName" placeholder="e.g. kausar or Ali Khan" style="padding: 0.55rem 0.85rem; font-size: 0.88rem;">
+                <label style="font-size: 0.78rem;"><i class="fa-solid fa-user"></i> Admin Full Name</label>
+                <input type="text" id="newAdminKeyName" placeholder="e.g. Ali Khan" maxlength="60" style="padding: 0.55rem 0.85rem; font-size: 0.88rem;">
               </div>
               <div class="form-group" style="margin-bottom: 0;">
-                <label style="font-size: 0.78rem;"><i class="fa-solid fa-key"></i> 4-Digit Key</label>
-                <input type="text" id="newAdminKeyValue" maxlength="4" placeholder="7890" inputmode="numeric" style="padding: 0.55rem 0.85rem; font-size: 0.88rem; letter-spacing: 3px; font-weight: 700; text-align: center;">
+                <label style="font-size: 0.78rem;"><i class="fa-solid fa-key"></i> 6-Digit Key</label>
+                <input type="text" id="newAdminKeyValue" maxlength="6" placeholder="789012" inputmode="numeric" style="padding: 0.55rem 0.85rem; font-size: 0.88rem; letter-spacing: 3px; font-weight: 700; text-align: center;">
               </div>
-              <button class="btn btn-primary" onclick="createAdminPrivateKey()" style="white-space: nowrap; height: 38px;">
+              <button class="btn btn-secondary" id="btnGenerateKey" title="Generate Random 6-Digit Key" style="height: 38px; padding: 0 0.85rem;">
+                <i class="fa-solid fa-dice"></i>
+              </button>
+              <button class="btn btn-primary" id="btnCreateNewKey" style="white-space: nowrap; height: 38px;">
                 <i class="fa-solid fa-plus"></i> Assign Key
               </button>
             </div>
             <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem;">
-              <i class="fa-solid fa-circle-info" style="color: #60a5fa;"></i> Exact spelling is matched when the Admin enters their credentials with password 4545.
+              <i class="fa-solid fa-circle-info" style="color: #60a5fa;"></i> Creates an account with email <code>slug(name)@fine-collector.app</code> and this 6-digit key.
             </div>
           </div>
 
-          <!-- Existing Keys Table / Cards -->
-          <h4 style="font-size: 0.95rem; color: #ffffff; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
-            <span><i class="fa-solid fa-list-check" style="color: #38bdf8;"></i> Active Assigned Keys</span>
-            <span style="font-size: 0.78rem; color: #94a3b8;" id="keysCountLabel">0 Keys Registered</span>
+          <!-- One-Time Key Display Alert Box (Appears after creating a key) -->
+          <div id="oneTimeKeyBox" style="display: none; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; text-align: center;">
+            <div style="font-size: 2rem; color: #34d399; margin-bottom: 0.5rem;"><i class="fa-solid fa-circle-check"></i></div>
+            <h4 style="color: #34d399; font-size: 1.15rem; font-weight: 800; margin-bottom: 0.35rem;">6-Digit Private Key Assigned!</h4>
+            <p style="color: #cbd5e1; font-size: 0.88rem; margin-bottom: 0.75rem;">
+              Key created for admin: <strong id="oneTimeKeyAdminName" style="color: var(--text-primary);">-</strong>
+            </p>
+            <div style="display: inline-flex; align-items: center; gap: 0.75rem; background: rgba(0,0,0,0.3); padding: 0.6rem 1.25rem; border-radius: 10px; border: 1px dashed rgba(16, 185, 129, 0.5); margin-bottom: 0.75rem;">
+              <span id="oneTimeKeyDigits" style="font-family: monospace; font-size: 1.8rem; font-weight: 900; letter-spacing: 5px; color: #6ee7b7;">------</span>
+              <button class="btn btn-secondary btn-sm" id="btnCopyOneTimeKey" title="Copy Key to Clipboard">
+                <i class="fa-solid fa-copy"></i> Copy
+              </button>
+            </div>
+            <p style="font-size: 0.78rem; color: #fbbf24; max-width: 500px; margin: 0 auto 0.75rem;">
+              <i class="fa-solid fa-triangle-exclamation"></i> <strong>Important:</strong> This key is displayed ONCE. It is not stored in Firestore and cannot be retrieved again. Send it to the admin now.
+            </p>
+            <button class="btn btn-secondary btn-sm" id="btnCloseOneTimeKey">Dismiss</button>
+          </div>
+
+          <!-- Active Admins with Keys List -->
+          <h4 style="font-size: 0.95rem; color: var(--text-primary); margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
+            <span><i class="fa-solid fa-list-check" style="color: #38bdf8;"></i> Registered Sub-Admin Accounts</span>
+            <span style="font-size: 0.78rem; color: #94a3b8;" id="keysCountLabel">0 Admins</span>
           </h4>
-          <div id="adminPrivateKeysList" class="devices-list-container">
-            <!-- Dynamically populated -->
+          <div id="activeKeyHoldersList" class="devices-list-container">
+            <!-- Dynamically populated from admins collection -->
           </div>
           <div id="emptyAdminPrivateKeys" class="empty-requests-box" style="display: none;">
             <i class="fa-solid fa-key"></i>
-            <h4>No Private Keys Assigned Yet</h4>
-            <p>Use the form above to assign a 4-digit key to an admin name.</p>
+            <h4>No Sub-Admin Accounts Created</h4>
+            <p>Use the form above to assign a 6-digit key to an admin name.</p>
           </div>
         </div>
 
-        <!-- Tab 5: Activity & Audit Logs (Master Mind Realtime Tracking) -->
+        <!-- Tab 4: Activity & Audit Logs (Master Mind Realtime Tracking) -->
         <div id="manageViewAudit" style="display: none;">
           <p class="modal-section-desc">
-            Complete real-time activity and audit log of all admin operations. Tracks who accessed the portal, what late entries were added, edited, deleted, or paid, and exact timestamps.
+            Complete real-time activity and audit log of all admin operations. Tracks logins, late student entries, payment changes, and removals.
           </p>
 
           <!-- Audit Filters & Search Bar -->
@@ -659,13 +587,13 @@
             <div class="audit-filter-group">
               <div class="audit-select-wrap">
                 <label><i class="fa-solid fa-user-shield"></i> Filter by Admin:</label>
-                <select id="auditFilterAdmin" onchange="renderAuditLogsList()">
+                <select id="auditFilterAdmin">
                   <option value="all">All Admins</option>
                 </select>
               </div>
               <div class="audit-select-wrap">
                 <label><i class="fa-solid fa-filter"></i> Action Type:</label>
-                <select id="auditFilterAction" onchange="renderAuditLogsList()">
+                <select id="auditFilterAction">
                   <option value="all">All Actions</option>
                   <option value="LOGIN">Logins & Access</option>
                   <option value="ADD_STUDENT">Added Entries</option>
@@ -673,13 +601,10 @@
                   <option value="EDIT_STUDENT">Edited Entries</option>
                   <option value="DELETE_STUDENT">Deleted Entries</option>
                   <option value="LOGOUT">Logouts</option>
+                  <option value="ALLOW_ACCESS">Access Approvals</option>
+                  <option value="ASSIGN_KEY">Key Assignments</option>
                 </select>
               </div>
-            </div>
-            <div class="audit-actions-right">
-              <button class="btn btn-secondary btn-sm" onclick="clearAuditLogs()" title="Clear Audit Logs (Master Only)">
-                <i class="fa-solid fa-trash-can"></i> Clear Logs
-              </button>
             </div>
           </div>
 
@@ -691,7 +616,7 @@
             </div>
             <div class="audit-stat-item">
               <span class="audit-stat-num" id="auditStatCrudCount">0</span>
-              <span class="audit-stat-lbl">CRUD Operations</span>
+              <span class="audit-stat-lbl">Record Changes</span>
             </div>
             <div class="audit-stat-item">
               <span class="audit-stat-num" id="auditStatLastActive">None</span>
@@ -713,118 +638,42 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeAdminManagementModal()">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Change PIN Modal (Master Protected & Centrally Synchronized) -->
-  <div class="modal-overlay" id="pinModal" onclick="handleModalOverlayClick(event, 'pinModal')">
-    <div class="modal-box">
-      <div class="modal-header">
-        <h3><i class="fa-solid fa-key"></i> Change Admin Password</h3>
-        <button class="modal-close" onclick="closePinModal()">&times;</button>
-      </div>
-      <div class="modal-body">
-        
-        <div class="owner-protection-alert">
-          <i class="fa-solid fa-lock"></i>
-          <div>
-            <strong>Master Owner Protection:</strong>
-            <p>Only Master Admin (<strong>Kausar Hayat</strong>) is authorized to change the Admin Password. This will synchronize across all devices.</p>
-          </div>
-        </div>
-
-        <div class="form-group mb-3">
-          <label><i class="fa-solid fa-shield-halved"></i> Master Owner Passkey</label>
-          <input type="password" id="masterPasskeyForPinInput" placeholder="Enter Master Security Passkey">
-        </div>
-
-        <div class="form-group mb-3">
-          <label><i class="fa-solid fa-key"></i> New Master Secret PIN (4-12 digits)</label>
-          <input type="password" id="newPinInput" placeholder="Enter new secret PIN (e.g. 9922)">
-        </div>
-
-        <div class="form-group mb-3">
-          <label><i class="fa-solid fa-check"></i> Confirm New PIN</label>
-          <input type="password" id="confirmNewPinInput" placeholder="Confirm new secret PIN">
-        </div>
-
-        <div id="pinErrorMsg" class="error-msg" style="display: none;"></div>
-        <div id="pinSuccessMsg" class="success-msg" style="display: none;"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closePinModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="handleChangePin()">
-          <i class="fa-solid fa-floppy-disk"></i> Save & Sync PIN Everywhere
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Cloud Database Setup Modal (Firebase Firestore 24/7 Setup) -->
-  <div class="modal-overlay" id="cloudModal" onclick="handleModalOverlayClick(event, 'cloudModal')">
-    <div class="modal-box modal-lg">
-      <div class="modal-header">
-        <h3><i class="fa-solid fa-cloud"></i> Google Cloud Firestore Setup</h3>
-        <button class="modal-close" onclick="closeCloudModal()">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-desc">
-          Connected to Google Cloud Firestore collections (<strong>students</strong>, <strong>admin_devices</strong>, <strong>admin_audit_logs</strong>) for 24/7 live sync across all devices.
-        </p>
-        <div class="form-group mb-3">
-          <label>Firebase Project ID:</label>
-          <input type="text" id="firebaseProjectIdInput" placeholder="fine-collector">
-        </div>
-        <div class="form-group mb-3">
-          <label>Firebase Config JSON (Optional):</label>
-          <textarea id="firebaseConfigJson" rows="3" placeholder='{"projectId": "fine-collector"}'></textarea>
-        </div>
-        <div class="cloud-status-current" id="cloudStatusDetails">
-          <strong>Status:</strong> <span id="currentStorageMode">Cloud Firestore Mode</span>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="disconnectCloud()">Use Local Mode</button>
-        <button class="btn btn-primary" onclick="saveCloudConfig()">
-          <i class="fa-solid fa-floppy-disk"></i> Save & Connect
-        </button>
+        <button class="btn btn-secondary" id="closeAdminManageModalFooterBtn">Close</button>
       </div>
     </div>
   </div>
 
   <!-- Edit Entry Modal -->
-  <div class="modal-overlay" id="editEntryModal" onclick="handleModalOverlayClick(event, 'editEntryModal')">
+  <div class="modal-overlay" id="editEntryModal" style="display: none;">
     <div class="modal-box">
       <div class="modal-header">
         <h3><i class="fa-solid fa-pen-to-square"></i> Edit Entry</h3>
-        <button class="modal-close" onclick="closeEditModal()">&times;</button>
+        <button class="modal-close" id="closeEditModalBtn">&times;</button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="editEntryId">
         <div class="form-group mb-3">
-          <label>Student Name</label>
-          <input type="text" id="editStudentName" required>
+          <label for="editStudentName">Student Name</label>
+          <input type="text" id="editStudentName" maxlength="60" required>
         </div>
         <div class="form-group mb-3">
-          <label>Date</label>
+          <label for="editEntryDate">Date</label>
           <input type="date" id="editEntryDate" required>
         </div>
         <div class="form-group mb-3">
-          <label>Arrival Time</label>
+          <label for="editArrivalTime">Arrival Time</label>
           <div class="time-input-wrap">
-            <input type="text" id="editArrivalTime" required>
+            <input type="text" id="editArrivalTime" maxlength="20" required>
             <div class="time-presets">
-              <button type="button" class="btn-preset btn-preset-late" onclick="document.getElementById('editArrivalTime').value = '8:10+ AM'">
+              <button type="button" class="btn-preset btn-preset-late" id="editPresetLateBtn">
                 8:10+ AM
               </button>
             </div>
           </div>
         </div>
         <div class="form-group mb-3">
-          <label>Fine Amount (Rs)</label>
-          <input type="number" id="editFineAmount" required>
+          <label for="editFineAmount">Fine Amount (Rs)</label>
+          <input type="number" id="editFineAmount" min="0" max="1000" step="50" required>
         </div>
         <div class="form-group">
           <label class="custom-checkbox-container">
@@ -835,9 +684,41 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="saveEditedEntry()">
+        <button class="btn btn-secondary" id="editModalCancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="editModalSaveBtn">
           <i class="fa-solid fa-check"></i> Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Assign Key Modal for Pending Request -->
+  <div class="modal-overlay" id="assignKeyPendingModal" style="display: none;">
+    <div class="modal-box modal-sm">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-key" style="color: #818cf8;"></i> Assign 6-Digit Key</h3>
+        <button class="modal-close" id="closeAssignKeyPendingModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc" style="font-size: 0.88rem; color: #cbd5e1; margin-bottom: 1rem;">
+          Assign a 6-digit Private Key for applicant <strong id="assignKeyApplicantName" style="color: #fff;">-</strong>. This approves their access and registers them in Firebase Auth.
+        </p>
+        <input type="hidden" id="assignKeyApplicantUid">
+        <div class="form-group mb-3">
+          <label><i class="fa-solid fa-key"></i> 6-Digit Key</label>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" id="assignKeyPendingCode" maxlength="6" inputmode="numeric" placeholder="123456" style="letter-spacing: 4px; font-size: 1.1rem; font-weight: 700; text-align: center;">
+            <button type="button" class="btn btn-secondary" id="btnAssignKeyPendingRandom" title="Generate Random Key">
+              <i class="fa-solid fa-dice"></i>
+            </button>
+          </div>
+        </div>
+        <div id="assignKeyPendingError" class="error-msg" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelAssignKeyPendingBtn">Cancel</button>
+        <button class="btn btn-primary" id="confirmAssignKeyPendingBtn">
+          <i class="fa-solid fa-check"></i> Confirm & Assign
         </button>
       </div>
     </div>
@@ -846,7 +727,16 @@
   <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container"></div>
 
-  <!-- App Script with cache-busting version -->
-  <script src="app.js?v=20261012_restore_pin_v2"></script>
+  <!-- Firebase Compat SDKs (Version 10.8.0) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <!-- Project Firebase & App Check Configuration -->
+  <script src="firebase-config.js"></script>
+
+  <!-- Application Logic Encapsulated in Secure IIFE -->
+  <script src="app.js"></script>
 </body>
 </html>
